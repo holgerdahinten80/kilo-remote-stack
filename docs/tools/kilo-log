@@ -37,6 +37,15 @@ def parse_since(value):
     return time.time() - amount * seconds
 
 
+def decode_message(message):
+    if isinstance(message, list):
+        try:
+            return bytes(message).decode("utf-8", "replace")
+        except (TypeError, ValueError):
+            return "".join(str(item) for item in message)
+    return str(message or "")
+
+
 def read_journal(since_epoch, units):
     entries = []
     for key in units:
@@ -55,12 +64,10 @@ def read_journal(since_epoch, units):
             except ValueError:
                 continue
             message = record.get("MESSAGE")
-            if isinstance(message, list):
-                message = b"".join(message).decode("utf-8", "replace")
             entries.append({
                 "ts": int(record.get("__REALTIME_TIMESTAMP", 0)) / 1e6,
                 "source": key,
-                "text": str(message or ""),
+                "text": decode_message(message),
             })
     return entries
 
@@ -166,8 +173,8 @@ def main(argv=None):
     sys.stdout.flush()
     try:
         while True:
-            time.sleep(2)
-            fresh = collect(time.time() - 600, sources, args.job)
+            time.sleep(3)
+            fresh = collect(time.time() - 180, sources, args.job)
             for entry in fresh:
                 key = (round(entry["ts"], 1), entry["text"])
                 if key in keys:
