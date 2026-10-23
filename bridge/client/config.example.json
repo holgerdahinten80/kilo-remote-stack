@@ -1,0 +1,12 @@
+{
+  "BASE_URL": "https://holger80.dynv6.net",
+  "AGENT_TOKEN": "<agent-token-aus-config.env>",
+  "WORKSPACE": "C:\\Users\\dahinten\\kilo-work",
+  "KILO_EXE": "C:\\Users\\dahinten\\.vscode\\extensions\\kilocode.kilo-code-7.8.15-win32-x64\\bin\\kilo.exe",
+  "MODEL": "",
+  "JOB_TIMEOUT_SECONDS": 1800,
+  "CONNECT_TIMEOUT_SECONDS": 30,
+  "STATE_DIR": "C:\\Users\\dahinten\\AppData\\Local\\KiloAgent",
+  "DRY_RUN": 0,
+  "BACKOFF_MAX_SECONDS": 60
+}

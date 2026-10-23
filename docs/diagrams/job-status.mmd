@@ -1,0 +1,11 @@
+stateDiagram-v2
+    [*] --> pending: POST /jobs
+    pending --> leased: SSE-Zustellung (Lease 120 s)
+    leased --> running: POST /ack (Lease 3600 s)
+    leased --> leased: Lease abgelaufen → erneut zustellen
+    running --> done: POST /complete status=done
+    running --> failed: POST /complete status=failed
+    running --> failed: Running-Timeout (3600 s)
+    leased --> failed: 5 Versuche überschritten
+    done --> [*]
+    failed --> [*]

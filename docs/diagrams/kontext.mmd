@@ -1,0 +1,27 @@
+flowchart LR
+    subgraph Cloud
+        GPT[ChatGPT<br/>Go + RDC-App]
+        RDC[mcp.desktopcommander.app<br/>MCP-Relay]
+    end
+
+    subgraph Pi["Raspberry Pi (raspberrypi2, 192.168.178.30)"]
+        CADDY[Caddy :443<br/>Let's Encrypt]
+        RDCAG[RDC-Agent<br/>User rdc]
+        SUBMIT[kilo-submit]
+        BRIDGE[Kilo-Bridge :8892<br/>SQLite-Queue]
+        WAKE[Wake-Dienst :8891<br/>User waker]
+        WG[wg-firma<br/>WireGuard]
+    end
+
+    subgraph Firma["Firmen-LAN"]
+        RELAY[Intranet-WoL-Relay<br/>192.168.10.146]
+        PC[A1459<br/>192.168.50.56]
+        SCHL[ai.schleissheimer.de<br/>LLM-API]
+    end
+
+    GPT --> RDC --> RDCAG --> SUBMIT --> BRIDGE
+    CADDY --> BRIDGE
+    CADDY --> WAKE
+    WAKE --> WG --> RELAY --> PC
+    BRIDGE -. SSE/HTTPS .-> PC
+    PC -. HTTPS .-> SCHL

@@ -1,0 +1,22 @@
+[Unit]
+Description=Wake-on-LAN-Dienst (POST /wake)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=waker
+Group=waker
+ExecStart=/usr/local/bin/wake-service.py
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=full
+ProtectControlGroups=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+
+[Install]
+WantedBy=multi-user.target

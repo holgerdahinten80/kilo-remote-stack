@@ -1,0 +1,25 @@
+sequenceDiagram
+    autonumber
+    participant U as Benutzer (Sprache)
+    participant GPT as ChatGPT
+    participant RDC as RDC-Relay
+    participant PI as Pi-Agent (rdc)
+    participant BR as Kilo-Bridge
+    participant AG as Client (A1459)
+    participant WEB as KiloCodeWeb
+    participant CLI as kilo.exe
+
+    U->>GPT: "Lege Datei X an"
+    GPT->>RDC: MCP-Tool (start_process)
+    RDC->>PI: Befehl kilo-submit "…"
+    PI->>BR: POST /jobs (Submit-Token)
+    BR-->>PI: 202 {id}
+    BR-->>AG: SSE job-Event (Agent-Token)
+    AG->>BR: POST /jobs/{id}/ack
+    AG->>WEB: POST /api/run
+    WEB->>CLI: kilo run --auto --model … --dir …
+    CLI->>CLI: Tool-Call (write/edit/bash)
+    CLI-->>WEB: JSON-Events + Ergebnis
+    WEB-->>AG: Status "Fertig"
+    AG->>BR: POST /jobs/{id}/complete
+    BR-->>AG: 200 done

@@ -1,0 +1,1 @@
+waker ALL=(root) NOPASSWD: /usr/bin/wg-quick up wg-firma, /usr/bin/wg-quick down wg-firma

@@ -1,0 +1,14 @@
+# Nur Stack-Code und Dokumentation versionieren
+/*
+!/.gitignore
+!/README.md
+!/docs/
+!/bridge/
+!/wake/
+
+__pycache__/
+*.pyc
+*.pyo
+.kilo/
+agent.log
+executed.json

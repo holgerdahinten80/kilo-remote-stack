@@ -1,0 +1,34 @@
+flowchart TB
+    subgraph Internet
+        C[Caddy :443<br/>holger80.dynv6.net]
+    end
+
+    subgraph Pi["Pi 4 · Debian 13 · aarch64"]
+        S1[wake.service<br/>waker · 127.0.0.1:8891]
+        S2[kilo-bridge.service<br/>bridge · 127.0.0.1:8892]
+        S3[rdc-agent.service<br/>rdc · Node 22]
+        D1[(wake/config.env<br/>root:waker 0640)]
+        D2[(kilo-bridge/config.env<br/>root:bridge 0640)]
+        D3[(queue.db<br/>bridge 0750)]
+        D4[(/etc/wireguard/wg-firma.conf<br/>root 0600)]
+    end
+
+    subgraph PC["A1459 · Windows 11"]
+        T1[Task KiloAgent<br/>Interactive]
+        T2[Task KiloCodeWeb<br/>Interactive]
+        F1[%LOCALAPPDATA%\KiloAgent<br/>config.json ACL]
+        F2[~/.config/kilo/kilo.jsonc<br/>Provider + Key]
+        F3[C:\Users\dahinten\kilo-work<br/>Workspace + Permissions]
+    end
+
+    C -->|/wake| S1
+    C -->|/jobs*| S2
+    S1 --> D1
+    S1 --> D4
+    S2 --> D2
+    S2 --> D3
+    T1 --> F1
+    T2 --> F2
+    T2 --> F3
+    T1 -. SSE über HTTPS .-> C
+    S3 -. MCP .-> D1

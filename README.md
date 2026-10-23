@@ -1,0 +1,52 @@
+# Kilo Remote Stack
+
+Sprach-/Chat-basierte Aufträge an einen Firmen-PC: ChatGPT reicht über einen
+MCP-Connector und einen Pi-Agenten einen Auftrag ein, der Pi verwaltet ihn in
+einer persistenten Queue, und ein Client auf dem Firmen-PC führt ihn über die
+Kilo-Code-CLI aus. Zusätzlich kann derselbe Pi den PC per Wake-on-LAN wecken.
+
+## Komponenten
+
+| Komponente | Ort | Aufgabe |
+|---|---|---|
+| `wake/` | Raspberry Pi | HTTPS-Endpunkt `POST /wake`: VPN aufbauen, WoL-Relay aufrufen, VPN trennen |
+| `bridge/` | Raspberry Pi | Auftrags-Queue (SQLite) + SSE-Auslieferung, HTTP-API |
+| `bridge/client/` | Firmen-PC | ausgehender Agent: Queue abholen, Kilo Code ausführen, quittieren |
+| `C:\Tool\KiloCodeWeb.py` | Firmen-PC | lokale Web-UI, startet die Kilo-CLI und zeigt die Kommunikation |
+| Caddy | Raspberry Pi | TLS-Terminierung für `/wake` und `/jobs*` |
+
+## Dokumentation
+
+| Datei | Inhalt |
+|---|---|
+| [docs/01-architektur.md](docs/01-architektur.md) | Aufbau, Datenfluss, Diagramme |
+| [docs/02-komponenten.md](docs/02-komponenten.md) | Dienste, Pfade, Benutzer, Ports |
+| [docs/03-api.md](docs/03-api.md) | HTTP-API, SSE, Zustände, Codes |
+| [docs/04-betrieb.md](docs/04-betrieb.md) | Start/Stop, Logs, Konfiguration, Rollback |
+| [docs/05-sicherheit.md](docs/05-sicherheit.md) | Rechte, Tokens, Risiken, Rotation |
+| [docs/06-tests.md](docs/06-tests.md) | Testmatrix und Ergebnisse |
+| [docs/07-troubleshooting.md](docs/07-troubleshooting.md) | Bekannte Fehler und Lösungen |
+
+## Schnellstart
+
+```bash
+# Tests (lokal, ohne Pi)
+python3 -m unittest discover -s wake/tests
+python3 -m unittest discover -s bridge/tests
+python3 -m unittest discover -s bridge/client/tests
+
+# Auftrag einreichen (auf dem Pi, als Benutzer rdc)
+/usr/local/bin/kilo-submit "Lege im Workspace die Datei hallo.txt an."
+
+# Auftrag einreichen (beliebiger Client mit Submit-Token)
+curl -sS -X POST https://holger80.dynv6.net/jobs \
+  -H "Authorization: Bearer $SUBMIT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"instruction":"Lege im Workspace die Datei hallo.txt an."}'
+```
+
+## Diagramme
+
+Die Diagramme liegen als Mermaid-Quelltext in `docs/diagrams/` und sind in den
+Dokumenten eingebettet. VS Code zeigt sie in der Markdown-Vorschau, GitHub
+rendert sie direkt.
