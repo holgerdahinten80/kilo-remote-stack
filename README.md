@@ -56,6 +56,9 @@ python3 -m unittest discover -s bridge/client/tests
 # Logs zu einer Job-ID
 /usr/local/bin/kilo-log --job <id> --since 2h
 
+# dauerhaft mitlaufen (Verlauf + Live)
+/usr/local/bin/kilo-log --since 2h --follow
+
 # Auftrag einreichen (beliebiger Client mit Submit-Token)
 curl -sS -X POST https://holger80.dynv6.net/jobs \
   -H "Authorization: Bearer $SUBMIT_TOKEN" \

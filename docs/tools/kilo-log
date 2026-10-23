@@ -110,24 +110,12 @@ def normalize(entry):
     return entry
 
 
-def main(argv=None):
-    parser = argparse.ArgumentParser(description="Logs des Kilo-Remote-Stacks")
-    parser.add_argument("--job", help="Job-ID (auch Teilstring)")
-    parser.add_argument("--since", default="2h", help="Zeitraum, z. B. 30m, 2h, 1d")
-    parser.add_argument("--source", action="append", choices=sorted(set(UNITS) | set(SOURCES)),
-                        help="Quelle mehrfach waehlbar")
-    parser.add_argument("--tail", type=int, default=200, help="maximale Zeilen")
-    parser.add_argument("--json", action="store_true", help="JSON-Ausgabe")
-    args = parser.parse_args(argv)
-
-    since_epoch = parse_since(args.since)
-    sources = args.source or ["bridge", "wake", "rdc", "agent"]
+def collect(since_epoch, sources, job=None):
     units = [name for name in sources if name in UNITS]
-
     entries = read_journal(since_epoch, units) + read_files(since_epoch, sources)
     entries = [normalize(entry) for entry in entries]
-    if args.job:
-        needle = args.job.lower()
+    if job:
+        needle = job.lower()
         entries = [entry for entry in entries if needle in entry["text"].lower()]
     seen = set()
     unique = []
@@ -137,20 +125,63 @@ def main(argv=None):
             continue
         seen.add(key)
         unique.append(entry)
-    entries = unique
-    entries.sort(key=lambda entry: entry["ts"])
-    entries = entries[-args.tail:]
+    unique.sort(key=lambda entry: entry["ts"])
+    return unique
+
+
+def format_line(entry):
+    stamp = datetime.fromtimestamp(entry["ts"]).strftime("%Y-%m-%d %H:%M:%S")
+    return f"{stamp} {entry['source']:<7} {entry['text']}"
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Logs des Kilo-Remote-Stacks")
+    parser.add_argument("--job", help="Job-ID (auch Teilstring)")
+    parser.add_argument("--since", default="2h", help="Zeitraum, z. B. 30m, 2h, 1d")
+    parser.add_argument("--source", action="append", choices=sorted(set(UNITS) | set(SOURCES)),
+                        help="Quelle mehrfach waehlbar")
+    parser.add_argument("--tail", type=int, default=200, help="maximale Zeilen")
+    parser.add_argument("--json", action="store_true", help="JSON-Ausgabe")
+    parser.add_argument("--follow", action="store_true", help="nach dem Verlauf weiter mitschreiben")
+    args = parser.parse_args(argv)
+
+    since_epoch = parse_since(args.since)
+    sources = args.source or ["bridge", "wake", "rdc", "agent"]
+
+    entries = collect(since_epoch, sources, args.job)
+    shown = entries[-args.tail:]
+    keys = {(round(entry["ts"], 1), entry["text"]) for entry in entries}
 
     if args.json:
-        print(json.dumps(entries, ensure_ascii=False))
+        print(json.dumps(shown, ensure_ascii=False))
+    else:
+        for entry in shown:
+            print(format_line(entry))
+        if not shown:
+            print("(keine Treffer)", file=sys.stderr)
+
+    if not args.follow:
         return 0
 
-    for entry in entries:
-        stamp = datetime.fromtimestamp(entry["ts"]).strftime("%Y-%m-%d %H:%M:%S")
-        print(f"{stamp} {entry['source']:<7} {entry['text']}")
-    if not entries:
-        print("(keine Treffer)", file=sys.stderr)
-    return 0
+    sys.stdout.flush()
+    try:
+        while True:
+            time.sleep(2)
+            fresh = collect(time.time() - 600, sources, args.job)
+            for entry in fresh:
+                key = (round(entry["ts"], 1), entry["text"])
+                if key in keys:
+                    continue
+                keys.add(key)
+                if args.json:
+                    print(json.dumps(entry, ensure_ascii=False))
+                else:
+                    print(format_line(entry))
+            sys.stdout.flush()
+            if len(keys) > 20000:
+                keys = set(list(keys)[-5000:])
+    except KeyboardInterrupt:
+        return 0
 
 
 if __name__ == "__main__":

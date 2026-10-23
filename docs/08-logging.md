@@ -38,6 +38,10 @@ kilo-log --job fa80b3fd9c404606a04f135d206c92a3 --since 2h
 kilo-log --since 30m --source bridge
 kilo-log --since 1d --source agent --tail 100
 kilo-log --since 15m --json
+
+# dauerhaft mitlaufen (Verlauf + Live), Strg+C beendet
+kilo-log --since 2h --tail 200 --follow
+kilo-log --job fa80… --since 1d --follow
 ```
 
 Ausgabe:
@@ -58,6 +62,27 @@ journalctl -u kilo-bridge --since '1 hour ago' -o cat
 journalctl -u wake -n 50
 tail -f /media/ssd/logs/bridge/bridge.jsonl
 ```
+
+## Dauerhafte Ansicht mit Scrollback
+
+Ein normales Terminal-Fenster behält die Ausgabe, solange es offen ist; mit
+`--follow` läuft sie weiter. Für langen Rückblick:
+
+- **Windows Terminal**: Einstellungen → Profil → „Verlauf“ (Scrollback) auf
+  z. B. 10 000 Zeilen; alternativ `wt` mit Standardpuffer.
+- **PowerShell-Konsole**: Fenstertitel → Eigenschaften → Bildschirmpufferhöhe
+  auf 9999.
+- **tmux auf dem Pi** (empfohlen für Dauerbetrieb):
+
+```bash
+ssh rasp
+tmux new -s logs
+kilo-log --since 6h --follow
+# Strg+B, D löst; "tmux attach -t logs" verbindet wieder
+```
+
+Die eigentliche Persistenz liegt in den Dateien und in journald – ein
+geschlossenes Fenster verliert nichts.
 
 ## Was nicht geloggt wird
 
