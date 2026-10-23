@@ -1,6 +1,7 @@
 # Nur Stack-Code und Dokumentation versionieren
 /*
 !/.gitignore
+!/.gitattributes
 !/README.md
 !/docs/
 !/bridge/
