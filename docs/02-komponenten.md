@@ -81,6 +81,8 @@ konfigurierten Kilo-Aufruf aus.
 | Provider-Mapping | `schleissheimer/*` → `schleissheimer-native/*` (OpenAI-kompatibel) |
 | Backups | `KiloCodeWeb.py.bak-*` im selben Verzeichnis |
 
+Die gepatchte Fassung liegt zusätzlich im Repo unter `pc/KiloCodeWeb.py`.
+
 ## 7. Provider-Konfiguration (Firmen-PC)
 
 `C:\Users\dahinten\.config\kilo\kilo.jsonc` definiert den Provider
@@ -105,6 +107,8 @@ konfigurierten Kilo-Aufruf aus.
 ```
 
 Alle schleissheimer-Modelle sind mit `tool_call: true` hinterlegt.
+
+Vorlage ohne Key im Repo: `pc/provider.kilo.jsonc.example`.
 
 ## 8. Workspace (Firmen-PC)
 

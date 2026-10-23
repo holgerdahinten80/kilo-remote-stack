@@ -1,0 +1,22 @@
+{
+  "$schema": "https://app.kilo.ai/config.json",
+  "provider": {
+    "schleissheimer-native": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Schleissheimer (nativ)",
+      "options": {
+        "baseURL": "https://ai.schleissheimer.de/v1",
+        "apiKey": "<API-KEY-HIER-EINTRAGEN>"
+      },
+      "models": {
+        "schleissheimer/charlie": {
+          "name": "Charlie",
+          "tool_call": true,
+          "reasoning": true,
+          "attachment": false,
+          "limit": { "context": 131072, "output": 8192 }
+        }
+      }
+    }
+  }
+}

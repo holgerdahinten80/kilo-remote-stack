@@ -12,6 +12,7 @@ Kilo-Code-CLI aus. Zusätzlich kann derselbe Pi den PC per Wake-on-LAN wecken.
 | `wake/` | Raspberry Pi | HTTPS-Endpunkt `POST /wake`: VPN aufbauen, WoL-Relay aufrufen, VPN trennen |
 | `bridge/` | Raspberry Pi | Auftrags-Queue (SQLite) + SSE-Auslieferung, HTTP-API |
 | `bridge/client/` | Firmen-PC | ausgehender Agent: Queue abholen, Kilo Code ausführen, quittieren |
+| `pc/` | Firmen-PC | Kopien der dort betriebenen Konfiguration (Web-UI, Workspace-Permissions, Provider-Beispiel) |
 | `C:\Tool\KiloCodeWeb.py` | Firmen-PC | lokale Web-UI, startet die Kilo-CLI und zeigt die Kommunikation |
 | Caddy | Raspberry Pi | TLS-Terminierung für `/wake` und `/jobs*` |
 
@@ -26,6 +27,16 @@ Kilo-Code-CLI aus. Zusätzlich kann derselbe Pi den PC per Wake-on-LAN wecken.
 | [docs/05-sicherheit.md](docs/05-sicherheit.md) | Rechte, Tokens, Risiken, Rotation |
 | [docs/06-tests.md](docs/06-tests.md) | Testmatrix und Ergebnisse |
 | [docs/07-troubleshooting.md](docs/07-troubleshooting.md) | Bekannte Fehler und Lösungen |
+
+## Dateien auf dem Firmen-PC
+
+| Repo-Datei | Ziel auf A1459 |
+|---|---|
+| `pc/KiloCodeWeb.py` | `C:\Tool\KiloCodeWeb.py` |
+| `pc/workspace.kilo.jsonc` | `C:\Users\dahinten\kilo-work\.kilo\kilo.jsonc` |
+| `pc/provider.kilo.jsonc.example` | `C:\Users\dahinten\.config\kilo\kilo.jsonc` (Key eintragen) |
+| `bridge/client/kilo_agent.py` | `%LOCALAPPDATA%\KiloAgent\kilo_agent.py` |
+| `bridge/client/config.example.json` | `%LOCALAPPDATA%\KiloAgent\config.json` (Token eintragen) |
 
 ## Schnellstart
 
