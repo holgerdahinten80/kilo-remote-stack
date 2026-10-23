@@ -28,6 +28,7 @@ Kilo-Code-CLI aus. Zusätzlich kann derselbe Pi den PC per Wake-on-LAN wecken.
 | [docs/06-tests.md](docs/06-tests.md) | Testmatrix und Ergebnisse |
 | [docs/07-troubleshooting.md](docs/07-troubleshooting.md) | Bekannte Fehler und Lösungen |
 | [docs/08-logging.md](docs/08-logging.md) | Zentrale Logs, Rotation, Abfragen per Job-ID |
+| [docs/09-chatgpt-auftraege.md](docs/09-chatgpt-auftraege.md) | Formulierungen für ChatGPT, Regeln, Fehlerfälle |
 
 ## Dateien auf dem Firmen-PC
 
