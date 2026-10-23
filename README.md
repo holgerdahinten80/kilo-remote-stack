@@ -9,8 +9,8 @@ Kilo-Code-CLI aus. Zusätzlich kann derselbe Pi den PC per Wake-on-LAN wecken.
 
 | Komponente | Ort | Aufgabe |
 |---|---|---|
-| `wake/` | Raspberry Pi | HTTPS-Endpunkt `POST /wake`: VPN aufbauen, WoL-Relay aufrufen, VPN trennen |
-| `bridge/` | Raspberry Pi | Auftrags-Queue (SQLite) + SSE-Auslieferung, HTTP-API |
+| `wake/` | Raspberry Pi | HTTPS-Endpunkt `POST /wake`: VPN aufbauen, WoL-Relay aufrufen, VPN trennen; Wrapper `wake-now` |
+| `bridge/` | Raspberry Pi | Auftrags-Queue (SQLite) + SSE-Auslieferung, HTTP-API, Auto-Wake bei fehlendem Client |
 | `bridge/client/` | Firmen-PC | ausgehender Agent: Queue abholen, Kilo Code ausführen, quittieren |
 | `pc/` | Firmen-PC | Kopien der dort betriebenen Konfiguration (Web-UI, Workspace-Permissions, Provider-Beispiel) |
 | `C:\Tool\KiloCodeWeb.py` | Firmen-PC | lokale Web-UI, startet die Kilo-CLI und zeigt die Kommunikation |
@@ -48,6 +48,9 @@ python3 -m unittest discover -s bridge/client/tests
 
 # Auftrag einreichen (auf dem Pi, als Benutzer rdc)
 /usr/local/bin/kilo-submit "Lege im Workspace die Datei hallo.txt an."
+
+# Rechner wecken (auf dem Pi, als Benutzer rdc)
+/usr/local/bin/wake-now
 
 # Auftrag einreichen (beliebiger Client mit Submit-Token)
 curl -sS -X POST https://holger80.dynv6.net/jobs \

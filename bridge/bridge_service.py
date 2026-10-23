@@ -17,6 +17,7 @@ import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
+import urllib.request
 
 LOG = logging.getLogger("bridge")
 
@@ -31,6 +32,10 @@ DEFAULTS = {
     "HEARTBEAT_SECONDS": "15",
     "SUBMIT_RATE_PER_MIN": "10",
     "IDEMPOTENCY_TTL_DAYS": "7",
+    "WAKE_URL": "",
+    "WAKE_TOKEN": "",
+    "WAKE_AFTER_SECONDS": "10",
+    "WAKE_COOLDOWN_SECONDS": "300",
     "CONFIG_ENV": "/etc/kilo-bridge/config.env",
 }
 
@@ -89,6 +94,15 @@ class Config:
         self.heartbeat_seconds = int(merged["HEARTBEAT_SECONDS"])
         self.submit_rate = int(merged["SUBMIT_RATE_PER_MIN"])
         self.idempotency_ttl = int(merged["IDEMPOTENCY_TTL_DAYS"]) * 86400
+        self.wake_url = merged["WAKE_URL"]
+        self.wake_token = merged["WAKE_TOKEN"]
+        self.wake_after = float(merged["WAKE_AFTER_SECONDS"])
+        self.wake_cooldown = float(merged["WAKE_COOLDOWN_SECONDS"])
+        if self.wake_url:
+            if not self.wake_url.startswith(("http://", "https://")):
+                raise ConfigError("WAKE_URL muss http(s) sein")
+            if len(self.wake_token) < 32:
+                raise ConfigError("WAKE_TOKEN fehlt oder ist zu kurz")
         self.submit_digest = digest(merged["SUBMIT_TOKEN"])
         self.agent_digest = digest(merged["AGENT_TOKEN"])
 
@@ -385,6 +399,8 @@ class Handler(BaseHTTPRequestHandler):
             "submit job=%s created=%s len=%d client=%s",
             job_id, created, len(instruction), client or "-",
         )
+        if created:
+            self.server.maybe_wake()
         self._json(202 if created else 200, "accepted" if created else "duplicate",
                    "Auftrag angenommen" if created else "Auftrag existiert bereits",
                    extra={"id": job_id})
@@ -434,6 +450,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Accel-Buffering", "no")
         self.end_headers()
         cfg = self.server.cfg
+        self.server.client_connected()
         LOG.info("stream open remote=%s", self.client_address[0])
         last_beat = time.monotonic()
         try:
@@ -457,6 +474,8 @@ class Handler(BaseHTTPRequestHandler):
                 time.sleep(1.0)
         except (BrokenPipeError, ConnectionResetError, OSError):
             LOG.info("stream closed remote=%s", self.client_address[0])
+        finally:
+            self.server.client_disconnected()
 
     def _role(self):
         header = self.headers.get("Authorization", "")
@@ -525,7 +544,55 @@ class BridgeServer(ThreadingHTTPServer):
         self.store = store or Store(cfg.db_path, cfg.max_pending)
         self.submit_limiter = RateLimiter(cfg.submit_rate)
         self._last_purge = 0.0
+        self._clients = 0
+        self._clients_lock = threading.Lock()
+        self._wake_lock = threading.Lock()
+        self._last_wake = 0.0
         threading.Thread(target=self._purge_loop, daemon=True).start()
+
+    def client_connected(self):
+        with self._clients_lock:
+            self._clients += 1
+
+    def client_disconnected(self):
+        with self._clients_lock:
+            self._clients = max(0, self._clients - 1)
+
+    def clients(self):
+        with self._clients_lock:
+            return self._clients
+
+    def maybe_wake(self, wait=False):
+        if not self.cfg.wake_url or self.clients() > 0:
+            return False
+        if wait:
+            return self._wake_after_delay()
+        threading.Thread(target=self._wake_after_delay, daemon=True).start()
+        return True
+
+    def _wake_after_delay(self):
+        if not self._wake_lock.acquire(blocking=False):
+            return False
+        try:
+            time.sleep(self.cfg.wake_after)
+            if self.clients() > 0:
+                LOG.info("auto-wake nicht noetig: Client verbunden")
+                return False
+            now = time.time()
+            if now - self._last_wake < self.cfg.wake_cooldown:
+                LOG.info("auto-wake im Cooldown")
+                return False
+            self._last_wake = now
+            request = urllib.request.Request(self.cfg.wake_url, method="POST")
+            request.add_header("Authorization", "Bearer " + self.cfg.wake_token)
+            with urllib.request.urlopen(request, timeout=120) as response:
+                LOG.info("auto-wake: HTTP %s", response.status)
+            return True
+        except Exception as exc:
+            LOG.warning("auto-wake fehlgeschlagen: %s", type(exc).__name__)
+            return False
+        finally:
+            self._wake_lock.release()
 
     def _purge_loop(self):
         while True:

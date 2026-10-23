@@ -267,3 +267,110 @@ class HttpTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class FakeWake:
+    def __init__(self):
+        import http.server
+        import threading
+        self.calls = 0
+        outer = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_POST(self):
+                outer.calls += 1
+                body = b'{"status": "wake_sent"}'
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.url = f"http://127.0.0.1:{self.server.server_address[1]}/wake"
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def stop(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+
+class WakeTriggerTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.wake = FakeWake()
+        self.cfg = make_config(
+            self.tmp.name,
+            WAKE_URL=self.wake.url,
+            WAKE_TOKEN="W" * 48,
+            WAKE_AFTER_SECONDS="0.05",
+            WAKE_COOLDOWN_SECONDS="0",
+        )
+        self.server = bs.BridgeServer(self.cfg)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self.host, self.port = self.server.server_address[:2]
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(5)
+        time.sleep(0.3)
+        self.tmp.cleanup()
+        self.wake.stop()
+
+    def submit(self, text="Auftrag"):
+        import urllib.request
+        request = urllib.request.Request(
+            f"http://{self.host}:{self.port}/jobs",
+            data=json.dumps({"instruction": text}).encode(),
+            method="POST",
+        )
+        request.add_header("Authorization", "Bearer " + SUBMIT)
+        request.add_header("Content-Type", "application/json")
+        with urllib.request.urlopen(request, timeout=5) as response:
+            return response.status
+
+    def test_auto_wake_without_client(self):
+        self.assertEqual(self.submit(), 202)
+        deadline = time.time() + 5
+        while self.wake.calls == 0 and time.time() < deadline:
+            time.sleep(0.05)
+        self.assertEqual(self.wake.calls, 1)
+
+    def test_no_wake_when_client_connected(self):
+        import http.client
+        conn = http.client.HTTPConnection(self.host, self.port, timeout=5)
+        conn.request("GET", "/jobs/stream", headers={"Authorization": "Bearer " + AGENT})
+        response = conn.getresponse()
+        self.assertEqual(response.status, 200)
+        response.readline()
+        self.submit("mit Client")
+        time.sleep(0.5)
+        self.assertEqual(self.wake.calls, 0)
+        conn.close()
+
+    def test_wake_cooldown(self):
+        self.server.cfg.wake_cooldown = 60
+        self.submit("eins")
+        deadline = time.time() + 5
+        while self.wake.calls == 0 and time.time() < deadline:
+            time.sleep(0.05)
+        self.submit("zwei")
+        time.sleep(0.5)
+        self.assertEqual(self.wake.calls, 1)
+
+    def test_wake_failure_does_not_break_submit(self):
+        self.server.cfg.wake_url = "http://127.0.0.1:1/wake"
+        self.assertEqual(self.submit("egal"), 202)
+
+    def test_wake_disabled(self):
+        self.server.cfg.wake_url = ""
+        self.assertEqual(self.submit("ohne wake"), 202)
+        time.sleep(0.3)
+        self.assertEqual(self.wake.calls, 0)
+
+

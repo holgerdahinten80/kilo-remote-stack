@@ -34,6 +34,16 @@ else
     echo "$CONF_FILE angelegt (Token zufaellig erzeugt)"
 fi
 
+echo "== Wrapper wake-now =="
+if [ ! -f /etc/wake.token ]; then
+    TOKEN="$(grep '^WAKE_TOKEN=' "$CONF_FILE" | cut -d= -f2-)"
+    printf '%s\n' "$TOKEN" > /etc/wake.token
+    chown root:rdc /etc/wake.token
+    chmod 640 /etc/wake.token
+    echo "/etc/wake.token angelegt"
+fi
+install -m 755 -o root -g root "$SRC/wake-now" /usr/local/bin/wake-now
+
 echo "== sudoers =="
 install -m 440 -o root -g root "$SRC/sudoers-wake" /etc/sudoers.d/wake
 visudo -c -f /etc/sudoers.d/wake >/dev/null

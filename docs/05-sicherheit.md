@@ -26,7 +26,7 @@ deshalb läuft der RDC-Agent bewusst nicht als `pi`.
 |---|---|---|
 | Submit | nur `POST /jobs`, rate-limited | `/etc/kilo-submit.token` (root:rdc 0640) |
 | Agent | Stream, Ack, Complete, Status | `/etc/kilo-bridge/config.env` (root:bridge 0640) |
-| Wake | nur `POST /wake` | `/etc/wake/config.env` (root:waker 0640) |
+| Wake | nur `POST /wake` | `/etc/wake/config.env` (root:waker 0640); für `rdc` zusätzlich `/etc/wake.token` (0640) |
 
 Die Bridge speichert Digests, vergleicht mit `hmac.compare_digest` und protokolliert
 weder Token noch Payload.

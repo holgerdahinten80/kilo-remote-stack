@@ -11,10 +11,10 @@ python3 -m unittest discover -s bridge/client/tests
 | Suite | Anzahl | Abdeckung |
 |---|---|---|
 | Wake | 25 | Auth, Methoden, Body, Cooldown, Parallelität, VPN-Fehler/-Timeout, Relay-Fehler, Cleanup, Dry-Run |
-| Bridge | 26 | Token-Rollen, Validierung, Idempotenz, Queue-Limit, Rate-Limit, Lease/Ack/Complete, Lease-Ablauf, Running-Timeout, Persistenz, SSE, keine Befehlsausführung |
+| Bridge | 31 | Token-Rollen, Validierung, Idempotenz, Queue-Limit, Rate-Limit, Lease/Ack/Complete, Lease-Ablauf, Running-Timeout, Persistenz, SSE, keine Befehlsausführung, Auto-Wake |
 | Client | 18 | Konfiguration, SSE-Parsing, Erfolg/Fehler/Timeout, Ledger-Dedupe, Dry-Run, Web-Runner, Kommandobau |
 
-Ergebnis: **69 Tests, alle grün** (Stand 23.10.2026).
+Ergebnis: **74 Tests, alle grün** (Stand 23.10.2026).
 
 ## Manuelle Abnahmen
 
@@ -39,6 +39,16 @@ Ergebnis: **69 Tests, alle grün** (Stand 23.10.2026).
 | Shell-Syntax im Auftrag | gespeichert, **nicht** ausgeführt |
 | Lease-Ablauf | erneute Zustellung (`attempt 2`), danach `done` |
 | Client-Neustart | Ledger verhindert Doppelausführung |
+
+### Auto-Wake und Wrapper
+
+| Prüfung | Ergebnis |
+|---|---|
+| `wake-now` als `rdc` | `{"http":200,"status":"already_running"}` |
+| Auftrag ohne verbundenen Agent | Bridge ruft nach 10 s den Wake-Dienst, Log: `auto-wake: HTTP 200` |
+| Auftrag mit verbundenem Agent | kein Wake-Aufruf |
+| Cooldown | zweiter Auftrag innerhalb 300 s löst kein weiteres Wecken aus |
+| Wake-Fehler | `POST /jobs` bleibt erfolgreich (202) |
 
 ### Gesamtkette inkl. Wake-on-LAN
 

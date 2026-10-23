@@ -17,6 +17,10 @@ Ablauf: Cooldown prüfen → Tunnel prüfen oder `wg-quick up` → Interface, Ro
 TCP-Erreichbarkeit des Relays abwarten → Ziel per TCP vorprüfen → Relay-Aufruf →
 Tunnel nur trennen, wenn selbst gestartet.
 
+**Wrapper `wake-now`**: `/usr/local/bin/wake-now` (als `rdc` ausführbar) liest
+`/etc/wake.token` (root:rdc 0640) und ruft den lokalen Dienst auf. Damit kann
+ChatGPT das Wecken auslösen, ohne den Token zu kennen.
+
 ## 2. Kilo-Bridge (Raspberry Pi)
 
 | Eigenschaft | Wert |
@@ -32,8 +36,11 @@ Tunnel nur trennen, wenn selbst gestartet.
 
 Die Bridge führt nichts aus. Sie speichert, lease't und liefert Aufträge aus.
 
-## 3. `kilo-submit` (Raspberry Pi)
+**Auto-Wake**: Wird ein Auftrag angelegt und ist kein Agent per SSE verbunden,
+ruft die Bridge nach `WAKE_AFTER_SECONDS` (10 s) den lokalen Wake-Dienst auf
+(`WAKE_URL`, `WAKE_TOKEN` in `/etc/kilo-bridge/config.env`). Cooldown 300 s.
 
+## 3. `kilo-submit` (Raspberry Pi)
 | Eigenschaft | Wert |
 |---|---|
 | Pfad | `/usr/local/bin/kilo-submit` |

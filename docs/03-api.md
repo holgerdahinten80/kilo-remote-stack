@@ -29,6 +29,9 @@ Die Bridge speichert nur SHA-256-Digests und vergleicht zeitkonstant.
 
 Optional: Header `Idempotency-Key: <max 128 Zeichen>`.
 
+Ist kein Agent per SSE verbunden, löst die Bridge nach 10 s automatisch den
+Wake-Dienst aus (Cooldown 300 s). Der Auftrag bleibt bis zur Zustellung `pending`.
+
 | Code | Status | Bedeutung |
 |---|---|---|
 | 202 | `accepted` | neuer Auftrag, `id` in der Antwort |

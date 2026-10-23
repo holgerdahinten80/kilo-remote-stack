@@ -33,7 +33,38 @@ sudo chmod 640 /etc/kilo-submit.token
 sudo sed -i "s/^AGENT_TOKEN=.*/AGENT_TOKEN=<neu>/" /etc/kilo-bridge/config.env
 sudo systemctl restart kilo-bridge
 # danach config.json auf A1459 aktualisieren
+
+# Wake-Token setzen (Wake-Dienst, Wrapper, Auto-Wake der Bridge)
+sudo sed -i "s/^WAKE_TOKEN=.*/WAKE_TOKEN=<neu>/" /etc/wake/config.env
+printf '%s\n' '<neu>' | sudo tee /etc/wake.token
+sudo chown root:rdc /etc/wake.token && sudo chmod 640 /etc/wake.token
+sudo sed -i "s/^WAKE_TOKEN=.*/WAKE_TOKEN=<neu>/" /etc/kilo-bridge/config.env
+sudo systemctl restart wake kilo-bridge
 ```
+
+### Wake manuell auslösen
+
+```bash
+# auf dem Pi als Benutzer rdc (z. B. über ChatGPT)
+/usr/local/bin/wake-now
+
+# von außen
+curl -sS -X POST https://holger80.dynv6.net/wake -H "Authorization: Bearer $WAKE_TOKEN"
+```
+
+### Auto-Wake
+
+Ist in der Bridge konfiguriert (`WAKE_URL`, `WAKE_TOKEN`, `WAKE_AFTER_SECONDS`,
+`WAKE_COOLDOWN_SECONDS`). Ablauf:
+
+1. `POST /jobs` legt einen Auftrag an.
+2. Ist **kein** Agent per SSE verbunden, wartet die Bridge 10 s und ruft dann
+   `POST http://127.0.0.1:8891/wake` auf.
+3. Ist innerhalb der Wartezeit ein Client verbunden, entfällt der Aufruf.
+4. Ein Cooldown von 300 s verhindert wiederholtes Wecken.
+
+Folge: Ein Auftrag allein startet den PC, ohne dass ChatGPT etwas vom Wecken
+wissen muss. `wake-now` bleibt der manuelle Weg.
 
 ### WoL testen
 

@@ -1,0 +1,43 @@
+#!/usr/bin/env python3
+"""Loest einen Wake-on-LAN-Vorgang ueber den lokalen Wake-Dienst aus."""
+
+import json
+import sys
+import urllib.error
+import urllib.request
+
+TOKEN_FILE = "/etc/wake.token"
+URL = "http://127.0.0.1:8891/wake"
+
+
+def read_token():
+    with open(TOKEN_FILE, encoding="utf-8") as handle:
+        token = handle.read().strip()
+    if len(token) < 32:
+        raise SystemExit("Wake-Token fehlt oder ist zu kurz")
+    return token
+
+
+def wake():
+    request = urllib.request.Request(URL, method="POST")
+    request.add_header("Authorization", "Bearer " + read_token())
+    try:
+        with urllib.request.urlopen(request, timeout=120) as response:
+            return response.status, json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        try:
+            return exc.code, json.loads(exc.read().decode("utf-8"))
+        except Exception:
+            return exc.code, {"status": "error", "message": str(exc)}
+    except urllib.error.URLError as exc:
+        return 0, {"status": "error", "message": f"Wake-Dienst nicht erreichbar: {exc.reason}"}
+
+
+def main():
+    code, data = wake()
+    print(json.dumps({"http": code, **data}, ensure_ascii=False))
+    return 0 if 200 <= code < 300 else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
