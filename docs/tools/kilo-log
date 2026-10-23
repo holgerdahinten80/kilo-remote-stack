@@ -1,0 +1,157 @@
+#!/usr/bin/env python3
+"""Zentrale Logabfrage fuer den Kilo-Remote-Stack.
+
+Liest journald (Bridge, Wake, RDC-Agent) und die JSONL-Dateien unter
+/media/ssd/logs und filtert nach Job-ID, Zeitraum und Quelle.
+"""
+
+import argparse
+import glob
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+from datetime import datetime, timedelta
+
+LOG_ROOT = "/media/ssd/logs"
+UNITS = {
+    "bridge": "kilo-bridge",
+    "wake": "wake",
+    "rdc": "rdc-agent",
+}
+SOURCES = {
+    "bridge": os.path.join(LOG_ROOT, "bridge"),
+    "wake": os.path.join(LOG_ROOT, "wake"),
+    "agent": os.path.join(LOG_ROOT, "agent"),
+}
+
+
+def parse_since(value):
+    match = re.fullmatch(r"(\d+)([smhd])", value.strip())
+    if not match:
+        raise SystemExit("--since erwartet z. B. 30m, 2h oder 1d")
+    amount, unit = int(match.group(1)), match.group(2)
+    seconds = {"s": 1, "m": 60, "h": 3600, "d": 86400}[unit]
+    return time.time() - amount * seconds
+
+
+def read_journal(since_epoch, units):
+    entries = []
+    for key in units:
+        unit = UNITS[key]
+        command = [
+            "journalctl", "-u", unit, "--since", f"@{int(since_epoch)}",
+            "--output=json", "--no-pager", "--quiet",
+        ]
+        try:
+            output = subprocess.run(command, capture_output=True, text=True, timeout=30).stdout
+        except (OSError, subprocess.SubprocessError):
+            continue
+        for line in output.splitlines():
+            try:
+                record = json.loads(line)
+            except ValueError:
+                continue
+            message = record.get("MESSAGE")
+            if isinstance(message, list):
+                message = b"".join(message).decode("utf-8", "replace")
+            entries.append({
+                "ts": int(record.get("__REALTIME_TIMESTAMP", 0)) / 1e6,
+                "source": key,
+                "text": str(message or ""),
+            })
+    return entries
+
+
+def read_files(since_epoch, sources):
+    entries = []
+    for key in sources:
+        directory = SOURCES.get(key)
+        if not directory:
+            continue
+        for path in sorted(glob.glob(os.path.join(directory, "*.jsonl*"))):
+            try:
+                with open(path, encoding="utf-8", errors="replace") as handle:
+                    for line in handle:
+                        try:
+                            record = json.loads(line)
+                        except ValueError:
+                            continue
+                        ts = float(record.get("ts", 0))
+                        if ts < since_epoch:
+                            continue
+                        text = record.get("text") or record.get("line") or record.get("msg") or ""
+                        job = record.get("job_id") or ""
+                        entries.append({
+                            "ts": ts,
+                            "source": key if job == "" or key != "agent" else "agent",
+                            "text": (f"[{job}] " if job else "") + str(text),
+                        })
+            except OSError:
+                continue
+    return entries
+
+
+def normalize(entry):
+    text = entry["text"]
+    if text.startswith("{"):
+        try:
+            record = json.loads(text)
+        except ValueError:
+            return entry
+        if isinstance(record, dict) and "msg" in record:
+            entry["text"] = str(record["msg"])
+            entry["ts"] = float(record.get("ts", entry["ts"]))
+        elif isinstance(record, dict) and "text" in record:
+            entry["text"] = "[" + str(record.get("kind", "log")) + "] " + " ".join(str(record["text"]).split())
+            entry["ts"] = float(record.get("ts", entry["ts"]))
+    return entry
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Logs des Kilo-Remote-Stacks")
+    parser.add_argument("--job", help="Job-ID (auch Teilstring)")
+    parser.add_argument("--since", default="2h", help="Zeitraum, z. B. 30m, 2h, 1d")
+    parser.add_argument("--source", action="append", choices=sorted(set(UNITS) | set(SOURCES)),
+                        help="Quelle mehrfach waehlbar")
+    parser.add_argument("--tail", type=int, default=200, help="maximale Zeilen")
+    parser.add_argument("--json", action="store_true", help="JSON-Ausgabe")
+    args = parser.parse_args(argv)
+
+    since_epoch = parse_since(args.since)
+    sources = args.source or ["bridge", "wake", "rdc", "agent"]
+    units = [name for name in sources if name in UNITS]
+
+    entries = read_journal(since_epoch, units) + read_files(since_epoch, sources)
+    entries = [normalize(entry) for entry in entries]
+    if args.job:
+        needle = args.job.lower()
+        entries = [entry for entry in entries if needle in entry["text"].lower()]
+    seen = set()
+    unique = []
+    for entry in entries:
+        key = (round(entry["ts"], 1), entry["text"])
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(entry)
+    entries = unique
+    entries.sort(key=lambda entry: entry["ts"])
+    entries = entries[-args.tail:]
+
+    if args.json:
+        print(json.dumps(entries, ensure_ascii=False))
+        return 0
+
+    for entry in entries:
+        stamp = datetime.fromtimestamp(entry["ts"]).strftime("%Y-%m-%d %H:%M:%S")
+        print(f"{stamp} {entry['source']:<7} {entry['text']}")
+    if not entries:
+        print("(keine Treffer)", file=sys.stderr)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

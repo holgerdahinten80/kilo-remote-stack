@@ -13,7 +13,7 @@ Kilo-Code-CLI aus. Zusätzlich kann derselbe Pi den PC per Wake-on-LAN wecken.
 | `bridge/` | Raspberry Pi | Auftrags-Queue (SQLite) + SSE-Auslieferung, HTTP-API, Auto-Wake bei fehlendem Client |
 | `bridge/client/` | Firmen-PC | ausgehender Agent: Queue abholen, Kilo Code ausführen, quittieren |
 | `pc/` | Firmen-PC | Kopien der dort betriebenen Konfiguration (Web-UI, Workspace-Permissions, Provider-Beispiel) |
-| `C:\Tool\KiloCodeWeb.py` | Firmen-PC | lokale Web-UI, startet die Kilo-CLI und zeigt die Kommunikation |
+| `pc/KiloCodeWeb.py` | Firmen-PC | lokale Web-UI, startet die Kilo-CLI und zeigt die Kommunikation |
 | Caddy | Raspberry Pi | TLS-Terminierung für `/wake` und `/jobs*` |
 
 ## Dokumentation
@@ -27,6 +27,7 @@ Kilo-Code-CLI aus. Zusätzlich kann derselbe Pi den PC per Wake-on-LAN wecken.
 | [docs/05-sicherheit.md](docs/05-sicherheit.md) | Rechte, Tokens, Risiken, Rotation |
 | [docs/06-tests.md](docs/06-tests.md) | Testmatrix und Ergebnisse |
 | [docs/07-troubleshooting.md](docs/07-troubleshooting.md) | Bekannte Fehler und Lösungen |
+| [docs/08-logging.md](docs/08-logging.md) | Zentrale Logs, Rotation, Abfragen per Job-ID |
 
 ## Dateien auf dem Firmen-PC
 
@@ -51,6 +52,9 @@ python3 -m unittest discover -s bridge/client/tests
 
 # Rechner wecken (auf dem Pi, als Benutzer rdc)
 /usr/local/bin/wake-now
+
+# Logs zu einer Job-ID
+/usr/local/bin/kilo-log --job <id> --since 2h
 
 # Auftrag einreichen (beliebiger Client mit Submit-Token)
 curl -sS -X POST https://holger80.dynv6.net/jobs \

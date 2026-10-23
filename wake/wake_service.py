@@ -28,6 +28,9 @@ DEFAULTS = {
     "PRECHECK_TARGET": "1",
     "LISTEN": "127.0.0.1:8891",
     "CONFIG_ENV": "/etc/wake/config.env",
+    "LOG_DIR": "/media/ssd/logs",
+    "LOG_MAX_BYTES": "2097152",
+    "LOG_BACKUPS": "3",
 }
 
 REQUIRED = ("WAKE_TOKEN", "RELAY_URL", "TARGET_MAC", "TARGET_IP")
@@ -88,6 +91,9 @@ class Config:
         host, _, port = merged["LISTEN"].rpartition(":")
         self.listen_host = host or "127.0.0.1"
         self.listen_port = int(port)
+        self.log_dir = merged["LOG_DIR"]
+        self.log_max_bytes = int(merged["LOG_MAX_BYTES"])
+        self.log_backups = int(merged["LOG_BACKUPS"])
 
     @classmethod
     def from_file(cls, path=None):
@@ -326,6 +332,40 @@ class WakeServer(ThreadingHTTPServer):
         self.controller = controller
 
 
+class JsonFormatter(logging.Formatter):
+    def format(self, record):
+        payload = {
+            "ts": round(record.created, 3),
+            "level": record.levelname,
+            "msg": record.getMessage(),
+        }
+        if record.exc_info:
+            payload["exc"] = self.formatException(record.exc_info)
+        return json.dumps(payload, ensure_ascii=False)
+
+
+def configure_logging(cfg):
+    handlers = [logging.StreamHandler()]
+    try:
+        directory = os.path.join(cfg.log_dir, "wake")
+        os.makedirs(directory, exist_ok=True)
+        from logging.handlers import RotatingFileHandler
+
+        handlers.append(
+            RotatingFileHandler(
+                os.path.join(directory, "wake.jsonl"),
+                maxBytes=cfg.log_max_bytes,
+                backupCount=cfg.log_backups,
+                encoding="utf-8",
+            )
+        )
+    except OSError:
+        pass
+    for handler in handlers:
+        handler.setFormatter(JsonFormatter())
+    logging.basicConfig(level=logging.INFO, handlers=handlers)
+
+
 def build(cfg):
     probe = TcpProbe()
     wg = WireGuardControl(cfg.wg_interface, cfg.relay_host, cfg.relay_port, probe)
@@ -335,11 +375,8 @@ def build(cfg):
 
 
 def main():
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(message)s",
-    )
     cfg = Config.from_file()
+    configure_logging(cfg)
     server = build(cfg)
     LOG.info(
         "wake-service startet auf %s:%d (dry_run=%s, interface=%s)",

@@ -36,6 +36,9 @@ DEFAULTS = {
     "WAKE_TOKEN": "",
     "WAKE_AFTER_SECONDS": "10",
     "WAKE_COOLDOWN_SECONDS": "300",
+    "LOG_DIR": "/media/ssd/logs",
+    "LOG_MAX_BYTES": "2097152",
+    "LOG_BACKUPS": "3",
     "CONFIG_ENV": "/etc/kilo-bridge/config.env",
 }
 
@@ -98,6 +101,9 @@ class Config:
         self.wake_token = merged["WAKE_TOKEN"]
         self.wake_after = float(merged["WAKE_AFTER_SECONDS"])
         self.wake_cooldown = float(merged["WAKE_COOLDOWN_SECONDS"])
+        self.log_dir = merged["LOG_DIR"]
+        self.log_max_bytes = int(merged["LOG_MAX_BYTES"])
+        self.log_backups = int(merged["LOG_BACKUPS"])
         if self.wake_url:
             if not self.wake_url.startswith(("http://", "https://")):
                 raise ConfigError("WAKE_URL muss http(s) sein")
@@ -312,10 +318,72 @@ class RateLimiter:
             return True
 
 
+class JsonlSink:
+    def __init__(self, path, max_bytes=2097152, backups=3):
+        self.path = path
+        self.max_bytes = max_bytes
+        self.backups = backups
+        self._lock = threading.Lock()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+
+    def write(self, record):
+        line = json.dumps(record, ensure_ascii=False)
+        with self._lock:
+            try:
+                if os.path.exists(self.path) and os.path.getsize(self.path) >= self.max_bytes:
+                    self._rotate()
+                with open(self.path, "a", encoding="utf-8") as handle:
+                    handle.write(line + "\n")
+            except OSError:
+                pass
+
+    def _rotate(self):
+        for index in range(self.backups - 1, 0, -1):
+            source = f"{self.path}.{index}"
+            if os.path.exists(source):
+                os.replace(source, f"{self.path}.{index + 1}")
+        if os.path.exists(self.path):
+            os.replace(self.path, f"{self.path}.1")
+
+
+class JsonFormatter(logging.Formatter):
+    def format(self, record):
+        payload = {
+            "ts": round(record.created, 3),
+            "level": record.levelname,
+            "msg": record.getMessage(),
+        }
+        if record.exc_info:
+            payload["exc"] = self.formatException(record.exc_info)
+        return json.dumps(payload, ensure_ascii=False)
+
+
+def configure_logging(cfg):
+    handlers = [logging.StreamHandler()]
+    try:
+        directory = os.path.join(cfg.log_dir, "bridge")
+        os.makedirs(directory, exist_ok=True)
+        from logging.handlers import RotatingFileHandler
+
+        handlers.append(
+            RotatingFileHandler(
+                os.path.join(directory, "bridge.jsonl"),
+                maxBytes=cfg.log_max_bytes,
+                backupCount=cfg.log_backups,
+                encoding="utf-8",
+            )
+        )
+    except OSError:
+        pass
+    for handler in handlers:
+        handler.setFormatter(JsonFormatter())
+    logging.basicConfig(level=logging.INFO, handlers=handlers)
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "kilo-bridge/1.0"
     protocol_version = "HTTP/1.1"
-    max_body = 16384
+    max_body = 65536
 
     def do_GET(self):
         path = urlsplit(self.path).path
@@ -346,6 +414,13 @@ class Handler(BaseHTTPRequestHandler):
             self._json(401, "unauthorized", "Nicht autorisiert")
             return
 
+        if path == "/logs":
+            if role != "agent":
+                self._json(403, "forbidden", "Agent-Token erforderlich")
+                return
+            self._logs()
+            return
+
         if path == "/jobs":
             if role != "submit":
                 self._json(403, "forbidden", "Submit-Token erforderlich")
@@ -366,6 +441,28 @@ class Handler(BaseHTTPRequestHandler):
                 self._complete(job_id)
                 return
         self._json(404, "not_found", "Unbekannter Endpunkt")
+
+    def _logs(self):
+        payload = self._read_json()
+        if payload is None:
+            return
+        lines = payload.get("lines")
+        if not isinstance(lines, list) or not lines or len(lines) > 200:
+            self._json(400, "bad_request", "lines ungueltig")
+            return
+        sink = self.server.agent_sink
+        if sink is None:
+            self._json(503, "unavailable", "Logsenke nicht verfuegbar")
+            return
+        client = str(payload.get("client") or "")[:64]
+        for entry in lines:
+            if isinstance(entry, dict):
+                record = {"ts": time.time(), "client": client}
+                record.update({str(k)[:32]: v for k, v in entry.items()})
+            else:
+                record = {"ts": time.time(), "client": client, "line": str(entry)[:2000]}
+            sink.write(record)
+        self._json(200, "ok", "Logzeilen angenommen", extra={"count": len(lines)})
 
     def _submit(self):
         if not self.server.submit_limiter.allow():
@@ -548,6 +645,15 @@ class BridgeServer(ThreadingHTTPServer):
         self._clients_lock = threading.Lock()
         self._wake_lock = threading.Lock()
         self._last_wake = 0.0
+        self.agent_sink = None
+        try:
+            self.agent_sink = JsonlSink(
+                os.path.join(cfg.log_dir, "agent", "agent.jsonl"),
+                cfg.log_max_bytes,
+                cfg.log_backups,
+            )
+        except OSError:
+            pass
         threading.Thread(target=self._purge_loop, daemon=True).start()
 
     def client_connected(self):
@@ -604,8 +710,8 @@ class BridgeServer(ThreadingHTTPServer):
 
 
 def main():
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     cfg = Config.from_file()
+    configure_logging(cfg)
     server = BridgeServer(cfg)
     LOG.info("kilo-bridge startet auf %s:%d (db=%s)", cfg.listen_host, cfg.listen_port, cfg.db_path)
     try:

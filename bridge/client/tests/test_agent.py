@@ -33,7 +33,7 @@ class FakeRunner:
         self.summary = summary
         self.instructions = []
 
-    def run(self, instruction):
+    def run(self, instruction, job_id=None):
         self.instructions.append(instruction)
         return self.code, self.summary
 

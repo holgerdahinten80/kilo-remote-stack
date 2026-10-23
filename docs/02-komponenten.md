@@ -12,7 +12,6 @@
 | sudo-Recht | `/etc/sudoers.d/wake`: nur `wg-quick up/down wg-firma` |
 | VPN | `/etc/wireguard/wg-firma.conf` (root 0600) |
 | HTTPS | Caddy: `POST /wake` |
-
 Ablauf: Cooldown prüfen → Tunnel prüfen oder `wg-quick up` → Interface, Route und
 TCP-Erreichbarkeit des Relays abwarten → Ziel per TCP vorprüfen → Relay-Aufruf →
 Tunnel nur trennen, wenn selbst gestartet.

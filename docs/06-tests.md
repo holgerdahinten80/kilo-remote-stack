@@ -11,10 +11,10 @@ python3 -m unittest discover -s bridge/client/tests
 | Suite | Anzahl | Abdeckung |
 |---|---|---|
 | Wake | 25 | Auth, Methoden, Body, Cooldown, Parallelität, VPN-Fehler/-Timeout, Relay-Fehler, Cleanup, Dry-Run |
-| Bridge | 31 | Token-Rollen, Validierung, Idempotenz, Queue-Limit, Rate-Limit, Lease/Ack/Complete, Lease-Ablauf, Running-Timeout, Persistenz, SSE, keine Befehlsausführung, Auto-Wake |
+| Bridge | 35 | Token-Rollen, Validierung, Idempotenz, Queue-Limit, Rate-Limit, Lease/Ack/Complete, Lease-Ablauf, Running-Timeout, Persistenz, SSE, keine Befehlsausführung, Auto-Wake, Log-Ingest (`POST /logs`, Rotation) |
 | Client | 18 | Konfiguration, SSE-Parsing, Erfolg/Fehler/Timeout, Ledger-Dedupe, Dry-Run, Web-Runner, Kommandobau |
 
-Ergebnis: **74 Tests, alle grün** (Stand 23.10.2026).
+Ergebnis: **78 Tests, alle grün** (Stand 23.10.2026).
 
 ## Manuelle Abnahmen
 
@@ -49,6 +49,18 @@ Ergebnis: **74 Tests, alle grün** (Stand 23.10.2026).
 | Auftrag mit verbundenem Agent | kein Wake-Aufruf |
 | Cooldown | zweiter Auftrag innerhalb 300 s löst kein weiteres Wecken aus |
 | Wake-Fehler | `POST /jobs` bleibt erfolgreich (202) |
+
+### Logging
+
+| Prüfung | Ergebnis |
+|---|---|
+| `POST /logs` ohne/mit falschem Token | 401 |
+| `POST /logs` mit Submit-Token | 403 |
+| Logzeilen landen in `agent.jsonl` | ja, inkl. Client-Kennung |
+| Rotation bei Überschreiten | `.1` vorhanden, funktioniert |
+| Agent versendet Logs über HTTPS | ja, gebündelt alle 5 s |
+| KiloCodeWeb-Events im zentralen Log | ja, per Tailer |
+| `kilo-log --job <id>` | zeigt submit/dispatch/ack/ANFRAGE/complete/done |
 
 ### Gesamtkette inkl. Wake-on-LAN
 

@@ -30,6 +30,9 @@ def make_config(tmpdir, **overrides):
         "HEARTBEAT_SECONDS": "15",
         "SUBMIT_RATE_PER_MIN": "10",
         "IDEMPOTENCY_TTL_DAYS": "7",
+        "LOG_DIR": tmpdir,
+        "LOG_MAX_BYTES": "2097152",
+        "LOG_BACKUPS": "3",
     }
     values.update(overrides)
     return bs.Config(values)
@@ -372,5 +375,65 @@ class WakeTriggerTests(unittest.TestCase):
         self.assertEqual(self.submit("ohne wake"), 202)
         time.sleep(0.3)
         self.assertEqual(self.wake.calls, 0)
+
+
+
+
+class LogIngestTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.cfg = make_config(self.tmp.name)
+        self.server = bs.BridgeServer(self.cfg)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self.host, self.port = self.server.server_address[:2]
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(5)
+        self.tmp.cleanup()
+
+    def post(self, token, payload):
+        request = urllib.request.Request(
+            f"http://{self.host}:{self.port}/logs",
+            data=json.dumps(payload).encode(),
+            method="POST",
+        )
+        request.add_header("Authorization", "Bearer " + token)
+        request.add_header("Content-Type", "application/json")
+        try:
+            with urllib.request.urlopen(request, timeout=5) as response:
+                return response.status, json.loads(response.read())
+        except urllib.error.HTTPError as exc:
+            return exc.code, json.loads(exc.read())
+
+    def test_agent_token_required(self):
+        code, _ = self.post(SUBMIT, {"lines": [{"msg": "x"}]})
+        self.assertEqual(code, 403)
+
+    def test_writes_lines(self):
+        code, data = self.post(AGENT, {"client": "pc", "lines": [{"msg": "start"}, "rohzeile"]})
+        self.assertEqual(code, 200)
+        self.assertEqual(data["count"], 2)
+        path = os.path.join(self.tmp.name, "agent", "agent.jsonl")
+        self.assertTrue(os.path.isfile(path))
+        with open(path, encoding="utf-8") as handle:
+            lines = [json.loads(line) for line in handle]
+        self.assertEqual(len(lines), 2)
+        self.assertEqual(lines[0]["client"], "pc")
+        self.assertEqual(lines[1]["line"], "rohzeile")
+
+    def test_invalid_lines(self):
+        self.assertEqual(self.post(AGENT, {"lines": []})[0], 400)
+        self.assertEqual(self.post(AGENT, {"lines": "x"})[0], 400)
+        self.assertEqual(self.post(AGENT, {})[0], 400)
+
+    def test_rotation(self):
+        sink = bs.JsonlSink(os.path.join(self.tmp.name, "rot", "x.jsonl"), max_bytes=100, backups=2)
+        for index in range(20):
+            sink.write({"n": index, "text": "x" * 20})
+        self.assertTrue(os.path.isfile(sink.path))
+        self.assertTrue(os.path.isfile(sink.path + ".1"))
 
 

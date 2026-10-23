@@ -15,6 +15,7 @@ import re
 import signal
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -59,11 +60,114 @@ class AgentConfig:
         )
         self.dry_run = str(values.get("DRY_RUN", "0")).lower() in ("1", "true", "yes")
         self.backoff_max = int(values.get("BACKOFF_MAX_SECONDS", "60"))
+        self.log_ship = str(values.get("LOG_SHIP", "1")).lower() in ("1", "true", "yes")
+        self.log_max_bytes = int(values.get("LOG_MAX_BYTES", "1048576"))
+        self.log_backups = int(values.get("LOG_BACKUPS", "3"))
+        self.tail_kiloweb = str(values.get("TAIL_KILOWEB", "1")).lower() in ("1", "true", "yes")
+        self.kiloweb_log = values.get("KILOWEB_LOG") or r"C:\Tool\logs\kiloweb.jsonl"
 
     @classmethod
     def from_file(cls, path):
         with open(path, encoding="utf-8-sig") as handle:
             return cls(json.load(handle))
+
+
+class LogShipper:
+    def __init__(self, base_url, token, interval=5.0, max_batch=50, client="a1459"):
+        self.url = base_url.rstrip("/") + "/logs"
+        self.token = token
+        self.interval = interval
+        self.max_batch = max_batch
+        self.client = client
+        self._buffer = []
+        self._lock = threading.Lock()
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def start(self):
+        self._thread.start()
+
+    def emit(self, text):
+        with self._lock:
+            self._buffer.append(text)
+            full = len(self._buffer) >= self.max_batch
+        if full:
+            self.flush()
+
+    def _run(self):
+        while not self._stop.wait(self.interval):
+            self.flush()
+
+    def flush(self):
+        with self._lock:
+            batch = self._buffer[: self.max_batch]
+            del self._buffer[: len(batch)]
+        if not batch:
+            return
+        payload = {"client": self.client, "lines": [{"line": line} for line in batch]}
+        request = urllib.request.Request(self.url, data=json.dumps(payload).encode(), method="POST")
+        request.add_header("Authorization", "Bearer " + self.token)
+        request.add_header("Content-Type", "application/json")
+        try:
+            with urllib.request.urlopen(request, timeout=10):
+                pass
+        except Exception:
+            pass
+
+
+class LogTail:
+    def __init__(self, path, shipper, interval=5.0, max_line=4000):
+        self.path = path
+        self.shipper = shipper
+        self.interval = interval
+        self.max_line = max_line
+        self.offset = 0
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def start(self):
+        try:
+            self.offset = os.path.getsize(self.path)
+        except OSError:
+            self.offset = 0
+        self._thread.start()
+
+    def _run(self):
+        while not self._stop.wait(self.interval):
+            self.poll()
+
+    def poll(self):
+        try:
+            size = os.path.getsize(self.path)
+        except OSError:
+            return
+        if size < self.offset:
+            self.offset = 0
+        if size == self.offset:
+            return
+        try:
+            with open(self.path, encoding="utf-8", errors="replace") as handle:
+                handle.seek(self.offset)
+                for line in handle:
+                    text = line.strip()
+                    if text:
+                        self.shipper.emit(text[: self.max_line])
+                self.offset = handle.tell()
+        except OSError:
+            pass
+
+
+class ShipHandler(logging.Handler):
+    def __init__(self, shipper):
+        super().__init__()
+        self.shipper = shipper
+        self.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+
+    def emit(self, record):
+        try:
+            self.shipper.emit(self.format(record))
+        except Exception:
+            pass
 
 
 class Ledger:
@@ -103,7 +207,7 @@ class KiloRunner:
         cmd.append(instruction)
         return cmd
 
-    def run(self, instruction):
+    def run(self, instruction, job_id=None):
         cmd = self.command(instruction)
         kwargs = {
             "cwd": self.workspace,
@@ -139,9 +243,10 @@ class KiloWebRunner:
         with urllib.request.urlopen(self.base_url + "/api/state", timeout=10) as response:
             return json.loads(response.read())
 
-    def _start(self, prompt):
+    def _start(self, prompt, job_id=None):
         payload = json.dumps({
             "prompt": prompt,
+            "job_id": job_id or "",
             "project": self.project,
             "auto_approve": self.auto_approve,
         }).encode("utf-8")
@@ -150,7 +255,7 @@ class KiloWebRunner:
         with urllib.request.urlopen(request, timeout=30) as response:
             return json.loads(response.read())
 
-    def run(self, instruction):
+    def run(self, instruction, job_id=None):
         deadline = time.monotonic() + self.timeout
         try:
             state = self._state()
@@ -165,7 +270,7 @@ class KiloWebRunner:
         before = len(state.get("events") or [])
         previous_status = str(state.get("status", ""))
         try:
-            self._start(instruction)
+            self._start(instruction, job_id)
         except urllib.error.HTTPError as exc:
             return 1, f"KiloCodeWeb lehnte den Auftrag ab (HTTP {exc.code})"
         except (OSError, ValueError):
@@ -290,7 +395,7 @@ class Agent:
         if self.cfg.dry_run:
             code, summary = 0, "Dry-Run: Kilo nicht gestartet"
         else:
-            code, summary = self.runner.run(instruction)
+            code, summary = self.runner.run(instruction, job_id)
         self.ledger.record(job_id, code)
         status = "done" if code == 0 else "failed"
         self._safe_complete(job_id, status, summary or f"Exit {code}")
@@ -357,9 +462,23 @@ def main(argv=None):
     os.makedirs(cfg.state_dir, exist_ok=True)
     handlers = [logging.StreamHandler()]
     try:
-        handlers.append(logging.FileHandler(os.path.join(cfg.state_dir, "agent.log"), encoding="utf-8"))
+        from logging.handlers import RotatingFileHandler
+        handlers.append(
+            RotatingFileHandler(
+                os.path.join(cfg.state_dir, "agent.log"),
+                maxBytes=cfg.log_max_bytes,
+                backupCount=cfg.log_backups,
+                encoding="utf-8",
+            )
+        )
     except OSError:
         pass
+    if cfg.log_ship:
+        shipper = LogShipper(cfg.base_url, cfg.token)
+        shipper.start()
+        handlers.append(ShipHandler(shipper))
+        if cfg.tail_kiloweb and cfg.kiloweb_log:
+            LogTail(cfg.kiloweb_log, shipper).start()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", handlers=handlers)
     ledger = Ledger(os.path.join(cfg.state_dir, "executed.json"))
     client = BridgeClient(cfg.base_url, cfg.token, cfg.connect_timeout)
