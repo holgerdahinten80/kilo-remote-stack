@@ -86,6 +86,10 @@ konfigurierten Kilo-Aufruf aus.
 | Modellwahl | `KILO_MODEL` → VS-Code-`state.vscdb` (`recentModels`/`favoriteModels`) → Fallback Charlie |
 | Provider-Mapping | `schleissheimer/*` → `schleissheimer-native/*` (OpenAI-kompatibel) |
 | Backups | `KiloCodeWeb.py.bak-*` im selben Verzeichnis |
+| Aufruf | `http://127.0.0.1:8765` oder Desktop-Verknüpfung „Kilo Code Web" |
+
+Das Skript ist ein Server und öffnet selbst kein Fenster. `KiloCodeWeb-Start.cmd`
+startet ihn bei Bedarf und öffnet die Seite im Standardbrowser.
 
 Die gepatchte Fassung liegt zusätzlich im Repo unter `pc/KiloCodeWeb.py`.
 

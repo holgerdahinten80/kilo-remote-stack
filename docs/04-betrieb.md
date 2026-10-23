@@ -106,6 +106,14 @@ Beide Aufgaben laufen als `SCHLEISSHEIMER\Dahinten`, `Interactive`,
 `C:\Users\dahinten\.config\kilo\kilo.jsonc` – Änderungen greifen beim nächsten
 CLI-Aufruf, kein Neustart nötig.
 
+### KiloCodeWeb öffnen
+
+Die Web-UI ist ein Server, kein Fenster-Programm:
+
+- Desktop-Verknüpfung **„Kilo Code Web"** doppelklicken, oder
+- `C:\Tool\KiloCodeWeb-Start.cmd` ausführen (startet den Dienst bei Bedarf), oder
+- im Browser `http://127.0.0.1:8765` öffnen.
+
 ### KiloCodeWeb neu starten
 
 ```powershell
