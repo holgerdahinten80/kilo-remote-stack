@@ -16,7 +16,7 @@ import threading
 import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlencode
 import urllib.request
 
 LOG = logging.getLogger("bridge")
@@ -39,6 +39,12 @@ DEFAULTS = {
     "LOG_DIR": "/media/ssd/logs",
     "LOG_MAX_BYTES": "2097152",
     "LOG_BACKUPS": "3",
+    "TELEGRAM_BOT_TOKEN": "",
+    "TELEGRAM_CHAT_ID": "",
+    "TELEGRAM_ON_SUBMIT": "0",
+    "TELEGRAM_RESULT_CHARS": "400",
+    "TELEGRAM_TIMEOUT_SECONDS": "10",
+    "TELEGRAM_API_BASE": "https://api.telegram.org",
     "CONFIG_ENV": "/etc/kilo-bridge/config.env",
 }
 
@@ -104,6 +110,13 @@ class Config:
         self.log_dir = merged["LOG_DIR"]
         self.log_max_bytes = int(merged["LOG_MAX_BYTES"])
         self.log_backups = int(merged["LOG_BACKUPS"])
+        self.telegram_token = merged["TELEGRAM_BOT_TOKEN"]
+        self.telegram_chat = merged["TELEGRAM_CHAT_ID"]
+        self.telegram_on_submit = str(merged["TELEGRAM_ON_SUBMIT"]).lower() in ("1", "true", "yes", "on")
+        self.telegram_result_chars = int(merged["TELEGRAM_RESULT_CHARS"])
+        self.telegram_timeout = int(merged["TELEGRAM_TIMEOUT_SECONDS"])
+        self.telegram_api_base = merged["TELEGRAM_API_BASE"].rstrip("/")
+        self.telegram_enabled = bool(self.telegram_token and self.telegram_chat)
         if self.wake_url:
             if not self.wake_url.startswith(("http://", "https://")):
                 raise ConfigError("WAKE_URL muss http(s) sein")
@@ -380,6 +393,29 @@ def configure_logging(cfg):
     logging.basicConfig(level=logging.INFO, handlers=handlers)
 
 
+class TelegramNotifier:
+    def __init__(self, token, chat_id, api_base="https://api.telegram.org", timeout=10):
+        self.token = token
+        self.chat_id = chat_id
+        self.api_base = api_base.rstrip("/")
+        self.timeout = timeout
+
+    def send(self, text):
+        url = f"{self.api_base}/bot{self.token}/sendMessage"
+        payload = urlencode({
+            "chat_id": self.chat_id,
+            "text": text[:4096],
+            "disable_web_page_preview": "true",
+        }).encode()
+        request = urllib.request.Request(url, data=payload, method="POST")
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                return response.status == 200
+        except Exception as exc:
+            LOG.warning("telegram: Versand fehlgeschlagen (%s)", type(exc).__name__)
+            return False
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "kilo-bridge/1.0"
     protocol_version = "HTTP/1.1"
@@ -498,6 +534,8 @@ class Handler(BaseHTTPRequestHandler):
         )
         if created:
             self.server.maybe_wake()
+            if self.server.cfg.telegram_on_submit:
+                self.server.notify(f"📥 Kilo-Auftrag {job_id[:8]}… angenommen")
         self._json(202 if created else 200, "accepted" if created else "duplicate",
                    "Auftrag angenommen" if created else "Auftrag existiert bereits",
                    extra={"id": job_id})
@@ -537,6 +575,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(409, "not_completed", "Auftrag nicht im passenden Status")
             return
         LOG.info("complete job=%s status=%s", job_id, status)
+        self.server.notify_completion(job_id, status, result)
         self._json(200, "ok", "Auftrag abgeschlossen", extra={"id": job_id, "status": status})
 
     def _stream(self):
@@ -654,6 +693,11 @@ class BridgeServer(ThreadingHTTPServer):
             )
         except OSError:
             pass
+        self.notifier = None
+        if cfg.telegram_enabled:
+            self.notifier = TelegramNotifier(
+                cfg.telegram_token, cfg.telegram_chat, cfg.telegram_api_base, cfg.telegram_timeout
+            )
         threading.Thread(target=self._purge_loop, daemon=True).start()
 
     def client_connected(self):
@@ -699,6 +743,24 @@ class BridgeServer(ThreadingHTTPServer):
             return False
         finally:
             self._wake_lock.release()
+
+    def notify(self, text):
+        if self.notifier is None:
+            return
+        threading.Thread(target=self.notifier.send, args=(text,), daemon=True).start()
+
+    def notify_completion(self, job_id, status, result):
+        if self.notifier is None:
+            return
+        job = self.store.job(job_id) or {}
+        duration = ""
+        if job.get("completed_at") and job.get("created_at"):
+            duration = f" ({job['completed_at'] - job['created_at']:.1f} s)"
+        icon = "✅" if status == STATUS_DONE else "❌"
+        text = f"{icon} Kilo-Auftrag {job_id[:8]}… {status}{duration}"
+        if result:
+            text += "\n" + str(result)[: self.cfg.telegram_result_chars]
+        self.notify(text)
 
     def _purge_loop(self):
         while True:

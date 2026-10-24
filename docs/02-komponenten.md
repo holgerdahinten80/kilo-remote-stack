@@ -39,6 +39,9 @@ Die Bridge führt nichts aus. Sie speichert, lease't und liefert Aufträge aus.
 ruft die Bridge nach `WAKE_AFTER_SECONDS` (10 s) den lokalen Wake-Dienst auf
 (`WAKE_URL`, `WAKE_TOKEN` in `/etc/kilo-bridge/config.env`). Cooldown 300 s.
 
+**Telegram**: Bei `complete` sendet die Bridge eine Nachricht an den Bot
+(`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`). Details: `docs/10-telegram.md`.
+
 ## 3. `kilo-submit` (Raspberry Pi)
 | Eigenschaft | Wert |
 |---|---|

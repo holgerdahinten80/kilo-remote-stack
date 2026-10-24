@@ -437,3 +437,98 @@ class LogIngestTests(unittest.TestCase):
         self.assertTrue(os.path.isfile(sink.path + ".1"))
 
 
+
+
+class FakeTelegram:
+    def __init__(self):
+        import http.server
+        import threading
+        self.messages = []
+        outer = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_POST(self):
+                from urllib.parse import parse_qs
+                length = int(self.headers.get("Content-Length", "0"))
+                fields = parse_qs(self.rfile.read(length).decode())
+                outer.messages.append(fields.get("text", [""])[0])
+                body = b'{"ok": true}'
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.base = f"http://127.0.0.1:{self.server.server_address[1]}"
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def stop(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+
+class TelegramTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.tg = FakeTelegram()
+        self.cfg = make_config(
+            self.tmp.name,
+            TELEGRAM_BOT_TOKEN="TOKEN",
+            TELEGRAM_CHAT_ID="123",
+            TELEGRAM_API_BASE=self.tg.base,
+        )
+        self.server = bs.BridgeServer(self.cfg)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self.host, self.port = self.server.server_address[:2]
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(5)
+        time.sleep(0.2)
+        self.tmp.cleanup()
+        self.tg.stop()
+
+    def test_notifier_send(self):
+        notifier = bs.TelegramNotifier("TOKEN", "123", self.tg.base, 5)
+        self.assertTrue(notifier.send("Hallo"))
+        self.assertEqual(self.tg.messages[-1], "Hallo")
+
+    def test_completion_notifies(self):
+        request = urllib.request.Request(
+            f"http://{self.host}:{self.port}/jobs",
+            data=json.dumps({"instruction": "Test"}).encode(),
+            method="POST",
+        )
+        request.add_header("Authorization", "Bearer " + SUBMIT)
+        request.add_header("Content-Type", "application/json")
+        with urllib.request.urlopen(request, timeout=5) as response:
+            job_id = json.loads(response.read())["id"]
+        self.server.store.set_status(job_id, "running", require_status=("pending", "leased"))
+        request = urllib.request.Request(
+            f"http://{self.host}:{self.port}/jobs/{job_id}/complete",
+            data=json.dumps({"status": "done", "result": "fertig"}).encode(),
+            method="POST",
+        )
+        request.add_header("Authorization", "Bearer " + AGENT)
+        request.add_header("Content-Type", "application/json")
+        with urllib.request.urlopen(request, timeout=5):
+            pass
+        deadline = time.time() + 5
+        while not self.tg.messages and time.time() < deadline:
+            time.sleep(0.05)
+        self.assertTrue(self.tg.messages)
+        self.assertIn(job_id[:8], self.tg.messages[-1])
+        self.assertIn("done", self.tg.messages[-1])
+        self.assertIn("fertig", self.tg.messages[-1])
+
+    def test_disabled_without_token(self):
+        cfg = make_config(self.tmp.name, TELEGRAM_BOT_TOKEN="", TELEGRAM_CHAT_ID="")
+        self.assertFalse(cfg.telegram_enabled)
+
+
