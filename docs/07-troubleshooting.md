@@ -115,6 +115,17 @@ Prozesse mit `KiloCodeWeb.py` in der Kommandozeile beenden.
 Die Datei hat ein UTF-8-BOM vor dem Shebang. Ohne BOM neu schreiben
 (`UTF8Encoding($false)` bzw. `newline=""` in Python).
 
+**Kilo-Auftrag bleibt `running`, obwohl die Antwort schon da ist**
+
+Die Kilo-CLI beendet sich nach `step_finish` gelegentlich nicht. KiloCodeWeb
+hat dafür einen Watchdog: 15 s nach `step_finish` bzw. 10 min ohne Ausgabe wird
+der Prozessbaum beendet; vor jedem Lauf werden Reste mit demselben `--dir`
+entfernt. Manuell:
+
+```powershell
+Get-Process kilo -ErrorAction SilentlyContinue | Stop-Process -Force
+```
+
 **Kilo-CLI nutzt das falsche Modell**
 
 Reihenfolge: `KILO_MODEL` (Env) → VS-Code-`state.vscdb` → `DEFAULT_MODEL`.

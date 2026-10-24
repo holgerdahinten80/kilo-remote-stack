@@ -1,18 +1,26 @@
 #!/usr/bin/env python3
-"""Reicht einen Kilo-Code-Auftrag bei der lokalen Bridge ein.
+"""Reicht einen Kilo-Auftrag ein und meldet optional den Fortschritt.
 
-Der Auftrag wird als Text uebergeben (Argument oder stdin). Es gibt keine
-Moeglichkeit, Ziel, Interface oder Kommandos zu waehlen.
+Aufruf:
+  kilo-submit [--wait] [--timeout SEK] <auftrag>
+  kilo-job-status <job-id>
+
+Beide Befehle lesen den Submit-Token aus /etc/kilo-submit.token und geben
+JSON-Zeilen aus. Es gibt keine Moeglichkeit, Ziel oder Kommandos zu waehlen.
 """
 
 import json
+import os
 import sys
+import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 TOKEN_FILE = "/etc/kilo-submit.token"
-URL = "http://127.0.0.1:8892/jobs"
+BASE = "http://127.0.0.1:8892"
 MAX_INSTRUCTION = 8192
+FINAL_STATES = ("done", "failed")
 
 
 def read_token():
@@ -23,13 +31,13 @@ def read_token():
     return token
 
 
-def submit(instruction):
-    body = json.dumps({"instruction": instruction, "client": "chatgpt-rdc"}).encode("utf-8")
-    request = urllib.request.Request(URL, data=body, method="POST")
-    request.add_header("Authorization", "Bearer " + read_token())
-    request.add_header("Content-Type", "application/json")
+def request(path, payload=None):
+    data = None if payload is None else json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(BASE + path, data=data, method="POST" if data else "GET")
+    req.add_header("Authorization", "Bearer " + read_token())
+    req.add_header("Content-Type", "application/json")
     try:
-        with urllib.request.urlopen(request, timeout=15) as response:
+        with urllib.request.urlopen(req, timeout=15) as response:
             return response.status, json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         try:
@@ -40,17 +48,90 @@ def submit(instruction):
         return 0, {"status": "error", "message": f"Bridge nicht erreichbar: {exc.reason}"}
 
 
+def submit(instruction, wait, timeout):
+    code, data = request("/jobs", {"instruction": instruction, "client": "chatgpt-rdc"})
+    print(json.dumps({"http": code, **data}, ensure_ascii=False), flush=True)
+    if code not in (200, 202) or not data.get("id"):
+        return 1 if code >= 400 or code == 0 else 0
+    if not wait:
+        return 0
+
+    job_id = data["id"]
+    deadline = time.monotonic() + timeout
+    last = None
+    while time.monotonic() < deadline:
+        time.sleep(2)
+        status_code, job = request(f"/jobs/{job_id}")
+        status = job.get("status")
+        if status != last:
+            print(json.dumps({"id": job_id, "status": status, "phase": "update"}, ensure_ascii=False), flush=True)
+            last = status
+        if status in FINAL_STATES:
+            print(json.dumps({
+                "id": job_id,
+                "status": status,
+                "result": job.get("result"),
+                "attempts": job.get("attempts"),
+                "phase": "final",
+            }, ensure_ascii=False), flush=True)
+            return 0 if status == "done" else 1
+
+    status_code, job = request(f"/jobs/{job_id}")
+    print(json.dumps({
+        "id": job_id,
+        "status": job.get("status"),
+        "phase": "timeout",
+        "message": "Zeitlimit erreicht, Auftrag laeuft weiter. Spaeter mit kilo-job-status pruefen.",
+    }, ensure_ascii=False), flush=True)
+    return 0
+
+
+def status(job_id):
+    code, job = request(f"/jobs/{job_id}")
+    print(json.dumps({"http": code, **job}, ensure_ascii=False))
+    return 0 if code == 200 else 1
+
+
 def main(argv):
-    text = " ".join(argv[1:]).strip() if len(argv) > 1 else sys.stdin.read().strip()
-    if not text:
+    name = os.path.basename(argv[0])
+    args = argv[1:]
+    if name.startswith("kilo-job-status"):
+        if len(args) != 1:
+            print("Aufruf: kilo-job-status <job-id>", file=sys.stderr)
+            return 2
+        return status(args[0])
+
+    wait = False
+    timeout = 120
+    text = []
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg in ("--wait", "-w"):
+            wait = True
+        elif arg in ("--timeout", "-t"):
+            index += 1
+            if index >= len(args) or not args[index].isdigit():
+                print("--timeout erwartet Sekunden", file=sys.stderr)
+                return 2
+            timeout = int(args[index])
+        elif arg.startswith("--timeout="):
+            timeout = int(arg.split("=", 1)[1])
+        elif arg in ("--help", "-h"):
+            print(__doc__)
+            return 0
+        else:
+            text.append(arg)
+        index += 1
+
+    instruction = " ".join(text).strip() if text else sys.stdin.read().strip()
+    if not instruction:
         print("Kein Auftrag uebergeben (Argument oder stdin erwartet)", file=sys.stderr)
         return 2
-    if len(text) > MAX_INSTRUCTION:
+    if len(instruction) > MAX_INSTRUCTION:
         print(f"Auftrag zu lang (max {MAX_INSTRUCTION} Zeichen)", file=sys.stderr)
         return 2
-    code, data = submit(text)
-    print(json.dumps({"http": code, **data}, ensure_ascii=False))
-    return 0 if 200 <= code < 300 else 1
+    return submit(instruction, wait, timeout)
 
 
 if __name__ == "__main__":

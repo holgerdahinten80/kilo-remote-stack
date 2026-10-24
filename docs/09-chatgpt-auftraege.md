@@ -35,6 +35,44 @@ Danach genügt:
 
 Oder per Sprache in der mobilen App denselben Satz diktieren.
 
+## Fortschritt und Ergebnis direkt im Chat
+
+Mit `--wait` blockiert der Aufruf, bis der Auftrag fertig ist, und liefert
+Zwischenstände als JSON-Zeilen:
+
+> Führe über Remote Desktop Commander auf `raspberrypi2` exakt diesen Befehl aus
+> und fasse das Ergebnis für mich zusammen:
+>
+> `/usr/local/bin/kilo-submit --wait --timeout 180 '<Auftragstext>'`
+
+Ausgabe:
+
+```json
+{"http":202,"status":"accepted","message":"Auftrag angenommen","id":"de65…"}
+{"id":"de65…","status":"running","phase":"update"}
+{"id":"de65…","status":"done","result":"OK","attempts":1,"phase":"final"}
+```
+
+ChatGPT kann daraus berichten: angenommen → läuft → fertig mit Ergebnis.
+`status` ist `done` oder `failed`.
+
+Läuft der Auftrag länger als `--timeout` (Standard 120 s), endet der Aufruf mit:
+
+```json
+{"id":"…","status":"running","phase":"timeout","message":"Zeitlimit erreicht …"}
+```
+
+Dann später gezielt nachfragen (Submit-Token genügt):
+
+> Führe aus: `/usr/local/bin/kilo-job-status <job-id>`
+
+```json
+{"http":200,"id":"…","status":"done","result":"…","attempts":1}
+```
+
+Für sehr lange Aufträge ist Telegram die bessere Rückmeldung
+(`docs/10-telegram.md`) – die Nachricht kommt automatisch bei Abschluss.
+
 ## Regeln für den Auftragstext
 
 | Regel | Grund |

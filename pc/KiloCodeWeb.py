@@ -154,9 +154,39 @@ document.getElementById('save').onclick=()=>{const blob=new Blob([logText+'\n\n-
 init();poll();
 </script></body></html>'''
 
+LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+LOG_FILE = os.path.join(LOG_DIR, "kiloweb.jsonl")
+LOG_MAX_BYTES = 2 * 1024 * 1024
+LOG_BACKUPS = 3
+LOG_LOCK = threading.Lock()
+
+
+def _log_to_file(kind, text, job_id=""):
+    try:
+        os.makedirs(LOG_DIR, exist_ok=True)
+        with LOG_LOCK:
+            if os.path.exists(LOG_FILE) and os.path.getsize(LOG_FILE) >= LOG_MAX_BYTES:
+                for index in range(LOG_BACKUPS - 1, 0, -1):
+                    source = LOG_FILE + "." + str(index)
+                    if os.path.exists(source):
+                        os.replace(source, LOG_FILE + "." + str(index + 1))
+                if os.path.exists(LOG_FILE):
+                    os.replace(LOG_FILE, LOG_FILE + ".1")
+            with open(LOG_FILE, "a", encoding="utf-8") as handle:
+                handle.write(json.dumps({
+                    "ts": round(time.time(), 3),
+                    "job_id": job_id,
+                    "kind": kind,
+                    "text": str(text)[:4000],
+                }, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+
 def add(kind, text):
     with LOCK:
         STATE["events"].append({"id": len(STATE["events"])+1, "kind": kind, "text": str(text)})
+        _log_to_file(kind, text, STATE.get("job_id", ""))
         if len(STATE["events"]) > 3000:
             STATE["events"] = STATE["events"][-2000:]
 
@@ -219,7 +249,32 @@ def find_model():
     return DEFAULT_MODEL
 
 
-def run_task(prompt, project, origin="WEB-CHAT", auto_approve=False):
+CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+
+def _terminate_cli(proc):
+    if proc.poll() is not None:
+        return
+    try:
+        subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                       capture_output=True, creationflags=CREATE_NO_WINDOW)
+    except OSError:
+        pass
+
+
+def _kill_leftovers(project):
+    safe = project.replace("'", "''")
+    script = ("Get-CimInstance Win32_Process -Filter \"Name='kilo.exe'\" | "
+              "Where-Object { $_.CommandLine -like '*--dir " + safe + "*' } | "
+              "ForEach-Object { Stop-Process -Id $_.ProcessId -Force }")
+    try:
+        subprocess.run(["powershell", "-NoProfile", "-Command", script],
+                       capture_output=True, creationflags=CREATE_NO_WINDOW)
+    except OSError:
+        pass
+
+
+def run_task(prompt, project, origin="WEB-CHAT", auto_approve=False, job_id=""):
     with LOCK:
         if STATE["busy"]:
             add("log", "Anfrage abgelehnt: Kilo Code verarbeitet bereits eine Aufgabe.")
@@ -231,7 +286,7 @@ def run_task(prompt, project, origin="WEB-CHAT", auto_approve=False):
     project_key = os.path.normcase(os.path.abspath(project))
     session_id = settings.get("project_sessions", {}).get(project_key, "")
     with LOCK: STATE["session_id"] = session_id
-    add("log", "\n[%s] ANFRAGE — QUELLE: %s" % (time.strftime("%H:%M:%S"), origin))
+    add("log", "\n[%s] ANFRAGE — QUELLE: %s — JOB: %s" % (time.strftime("%H:%M:%S"), origin, job_id or "-"))
     add("log", "Projektordner: " + project)
     add("log", "Session: " + (session_id if session_id else "Neue Session"))
     add("log", "Prompt:\n" + prompt)
@@ -254,7 +309,26 @@ def run_task(prompt, project, origin="WEB-CHAT", auto_approve=False):
             command.extend(["--session", session_id])
         command.append(prompt)
         add("log", "CLI-Befehl:\n" + subprocess.list2cmdline(command))
-        proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", bufsize=1, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        _kill_leftovers(project)
+        proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", bufsize=1, creationflags=CREATE_NO_WINDOW)
+        activity = {"last": time.time(), "finished": None}
+        stop_watch = threading.Event()
+
+        def watchdog():
+            while not stop_watch.wait(2):
+                if proc.poll() is not None:
+                    return
+                now = time.time()
+                if activity["finished"] and now - activity["finished"] > 15:
+                    add("log", "CLI reagiert nach Abschluss nicht mehr, beende Prozess.")
+                    _terminate_cli(proc)
+                    return
+                if now - activity["last"] > 600:
+                    add("log", "CLI seit 10 Minuten ohne Ausgabe, beende Prozess.")
+                    _terminate_cli(proc)
+                    return
+
+        threading.Thread(target=watchdog, daemon=True).start()
         for line in proc.stdout:
             line = line.rstrip()
             if not line: continue
@@ -266,7 +340,10 @@ def run_task(prompt, project, origin="WEB-CHAT", auto_approve=False):
                     save_session(project, session_id)
                     with LOCK: STATE["session_id"] = session_id
                     add("log", "Session-ID gespeichert: " + session_id)
+                activity["last"] = time.time()
                 kind = event.get("type", "")
+                if kind == "step_finish":
+                    activity["finished"] = time.time()
                 part = event.get("part") or {}
                 if kind == "text":
                     add("markdown", part.get("text", ""))
@@ -276,7 +353,13 @@ def run_task(prompt, project, origin="WEB-CHAT", auto_approve=False):
                     add("log", json.dumps(event, ensure_ascii=False))
             except json.JSONDecodeError:
                 add("log", line)
-        code = proc.wait()
+        try:
+            code = proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            add("log", "CLI beendet sich nicht, breche ab.")
+            _terminate_cli(proc)
+            code = proc.wait(timeout=5)
+        stop_watch.set()
         add("log", "Prozess beendet, Exit-Code: " + str(code))
         with LOCK: STATE["status"] = "Fertig" if code == 0 else "Fehlercode " + str(code)
     except Exception as exc:
@@ -307,6 +390,7 @@ class Handler(BaseHTTPRequestHandler):
         prompt = str(body.get("prompt", "")).strip()
         project = str(body.get("project", DEFAULT_PROJECT)).strip()
         auto_approve = bool(body.get("auto_approve", False))
+        job_id = str(body.get("job_id", ""))[:32]
         with LOCK:
             if STATE["busy"]: return self.reply(409, {"error":"Kilo Code verarbeitet bereits eine Aufgabe."})
         if path == "/api/new-session":
@@ -333,7 +417,7 @@ class Handler(BaseHTTPRequestHandler):
                 STATE["recent_projects"] = load_settings()["recent_projects"]
         except OSError as exc:
             return self.reply(500, {"error":"Projektordner konnte nicht gespeichert werden: " + str(exc)})
-        threading.Thread(target=run_task, args=(prompt, project, "WEB-CHAT", auto_approve), daemon=True).start()
+        threading.Thread(target=run_task, args=(prompt, project, "WEB-CHAT", auto_approve, job_id), daemon=True).start()
         time.sleep(.05)
         with LOCK: snapshot = dict(STATE, events=list(STATE["events"]))
         self.reply(202, snapshot)

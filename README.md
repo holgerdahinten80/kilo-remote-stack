@@ -49,8 +49,11 @@ python3 -m unittest discover -s wake/tests
 python3 -m unittest discover -s bridge/tests
 python3 -m unittest discover -s bridge/client/tests
 
-# Auftrag einreichen (auf dem Pi, als Benutzer rdc)
-/usr/local/bin/kilo-submit "Lege im Workspace die Datei hallo.txt an."
+# Auftrag einreichen und auf das Ergebnis warten
+/usr/local/bin/kilo-submit --wait --timeout 180 'Lege im Workspace die Datei hallo.txt an.'
+
+# Status später abfragen
+/usr/local/bin/kilo-job-status <job-id>
 
 # Rechner wecken (auf dem Pi, als Benutzer rdc)
 /usr/local/bin/wake-now
