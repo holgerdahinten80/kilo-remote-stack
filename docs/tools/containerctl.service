@@ -1,0 +1,17 @@
+[Unit]
+Description=Container-Steuerung (sonarr, radarr, nzbget)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+ExecStart=/usr/local/bin/containerctl
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

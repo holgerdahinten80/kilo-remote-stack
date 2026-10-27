@@ -1,0 +1,72 @@
+#!/usr/bin/env python3
+"""Steuert eine feste Auswahl an Docker-Containern ueber HTTP (nur Loopback)."""
+
+import json
+import subprocess
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+LISTEN = ("127.0.0.1", 8894)
+ALLOWED = {"sonarr", "radarr", "nzbget"}
+
+
+class Handler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
+    def do_GET(self):
+        parts = [part for part in self.path.strip("/").split("/") if part]
+        if parts == ["status"]:
+            self._json(200, {name: status(name) for name in sorted(ALLOWED)})
+            return
+        if parts in (["start-all"], ["stop-all"]):
+            verb = "start" if parts[0] == "start-all" else "stop"
+            results = {name: action(verb, name) for name in sorted(ALLOWED)}
+            all_ok = all(ok for ok, _ in results.values())
+            self._json(200 if all_ok else 500, {
+                "action": parts[0],
+                "ok": all_ok,
+                "containers": {name: {"ok": ok, "message": message} for name, (ok, message) in results.items()},
+            })
+            return
+        if len(parts) == 2 and parts[0] in ("start", "stop"):
+            name = parts[1]
+            if name not in ALLOWED:
+                self._json(403, {"error": "container not allowed"})
+                return
+            ok, message = action(parts[0], name)
+            self._json(200 if ok else 500, {"container": name, "action": parts[0], "ok": ok, "message": message})
+            return
+        self._json(404, {"error": "unknown endpoint"})
+
+    def _json(self, code, payload):
+        body = json.dumps(payload).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, fmt, *args):
+        pass
+
+
+def status(name):
+    result = subprocess.run(
+        ["docker", "inspect", "-f", "{{.State.Status}}", name],
+        capture_output=True, text=True, timeout=20,
+    )
+    return result.stdout.strip() if result.returncode == 0 else "unknown"
+
+
+def action(verb, name):
+    command = ["docker", verb, name]
+    if verb == "stop":
+        command = ["docker", "stop", "-t", "20", name]
+    result = subprocess.run(command, capture_output=True, text=True, timeout=120)
+    if result.returncode != 0:
+        return False, (result.stderr or result.stdout).strip()[:300]
+    return True, status(name)
+
+
+if __name__ == "__main__":
+    server = ThreadingHTTPServer(LISTEN, Handler)
+    server.serve_forever()

@@ -46,9 +46,30 @@ eine Zahl um und schreibt `0_userdata.0.command.id`.
 | 4 | Video an |
 | **5** | **ioBroker-Admin einschalten** |
 | **6** | **ioBroker-Admin ausschalten** |
+| **7** | **Sonarr + Radarr + NZBGet einschalten** |
+| **8** | **Sonarr + Radarr + NZBGet ausschalten** |
 
 Aufruf über Alexa: dem Gerät `Command` die Helligkeit 5 % bzw. 6 % zuweisen
 (oder eine Alexa-Routine „iobroker admin an" → „Command auf 5 %").
+
+## Container-Steuerung
+
+Die drei Container laufen nicht in ioBroker, deshalb gibt es einen kleinen
+Helferdienst auf dem Pi:
+
+| | |
+|---|---|
+| Programm | `/usr/local/bin/containerctl` (Python, stdlib) |
+| Unit | `/etc/systemd/system/containerctl.service` (User `pi`, docker-Gruppe) |
+| Bindung | `127.0.0.1:8894` |
+| Allowlist | `sonarr`, `radarr`, `nzbget` – keine freien Containernamen |
+| Endpunkte | `GET /status`, `/start-all`, `/stop-all` (einzeln: `/start/<name>`, `/stop/<name>`) |
+
+Ablauf: Alexa → VSH `Command` → Node-RED → `0_userdata.0.command.id` →
+ioBroker-JavaScript → `curl http://127.0.0.1:8894/stop-all` → `docker stop`.
+
+Getestet: `command.id=8` → alle drei `exited`; `command.id=7` → alle `running`.
+Der Helfer lehnt andere Container ab (`{"error":"container not allowed"}`).
 
 ## Tests
 
