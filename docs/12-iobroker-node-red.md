@@ -56,10 +56,11 @@ aus. Es gibt **keinen** zusätzlichen State wie `0_userdata.0.command.id`.
 | 2 | Wischen |
 | 3 | TV an |
 | 4 | Video an |
-| 5 | ioBroker-Admin einschalten |
-| 6 | ioBroker-Admin ausschalten |
-| 7 | Sonarr + Radarr + NZBGet einschalten |
-| 8 | Sonarr + Radarr + NZBGet ausschalten |
+| 5 | Admin – an/aus über `powerState` |
+| 6 | Dienste (Sonarr+Radarr+NZBGet) – an/aus über `powerState` |
+
+Ein Kommando pro Ziel: `powerState=ON` schaltet ein, `OFF` schaltet aus
+(`active = obj.state.val.powerState == "ON"`).
 
 Aufruf über Alexa: dem Gerät `Command` die entsprechende Helligkeit in Prozent
 zuweisen, z. B. 5 % = Admin an. Alternativ eine Alexa-Routine anlegen.
@@ -108,8 +109,8 @@ journalctl -t iobroker-restart -n 10
 | `curl /set/...?value=true` (Boolean) | `{"value":true,"val":true}` |
 | Objekt-State per simple-api | nur als `{"val":{…},"ack":false}` akzeptiert |
 | ID 99 | Log `Invalid command!`, keine Aktion |
-| ID 5 | `admin.0 is running` |
-| ID 6 | `admin.0 is not running` |
+| ID 5 + ON / OFF | `admin.0 is running` / `is not running` |
+| ID 6 + ON / OFF | alle drei `running` / `exited` |
 | Node-RED-Log auf 8081 | 0 Verbindungen |
 | Bindung simple-api | `127.0.0.1:8087`, aus dem LAN nicht erreichbar |
 | Flows | 18 `http request`, 0 `iob*`-Knoten |
