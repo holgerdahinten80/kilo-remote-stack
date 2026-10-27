@@ -1,0 +1,21 @@
+#!/bin/bash
+# Startet ioBroker nur neu, wenn der js-controller mehr als LIMIT_MB belegt.
+set -u
+LIMIT_MB="${LIMIT_MB:-500}"
+
+RSS_KB=$(docker exec iobroker ps -eo rss,args 2>/dev/null | grep '[i]obroker.js-controller' | awk '{print $1}' | head -1)
+if [ -z "${RSS_KB:-}" ]; then
+    logger -t iobroker-restart "js-controller nicht gefunden, kein Neustart"
+    exit 0
+fi
+RSS_MB=$((RSS_KB / 1024))
+
+if [ "$RSS_MB" -ge "$LIMIT_MB" ]; then
+    logger -t iobroker-restart "RSS ${RSS_MB} MB >= ${LIMIT_MB} MB - Neustart"
+    docker restart iobroker >/dev/null 2>&1
+    sleep 20
+    NEW_KB=$(docker exec iobroker ps -eo rss,args 2>/dev/null | grep '[i]obroker.js-controller' | awk '{print $1}' | head -1)
+    logger -t iobroker-restart "Neustart abgeschlossen, RSS jetzt $(( ${NEW_KB:-0} / 1024 )) MB"
+else
+    logger -t iobroker-restart "RSS ${RSS_MB} MB < ${LIMIT_MB} MB - kein Neustart"
+fi

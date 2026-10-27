@@ -1,6 +1,6 @@
 # ioBroker/Node-RED ohne Admin-Abhängigkeit
 
-Ziel: Der ioBroker-Admin (Web-UI, 126 MB) muss nicht dauerhaft laufen. Node-RED
+Ziel: Der ioBroker-Admin (Web-UI, ~126 MB) muss nicht dauerhaft laufen. Node-RED
 schreibt States deshalb nicht mehr über die WebSocket-Verbindung auf Port 8081,
 sondern über die **simple-api** auf Port 8087.
 
@@ -9,8 +9,8 @@ sondern über die **simple-api** auf Port 8087.
 | | vorher | nachher |
 |---|---|---|
 | Node-RED → ioBroker | `node-red-contrib-iobroker` (WebSocket 8081) | 18 × `http request` an `127.0.0.1:8087` |
-| Admin-Adapter | dauerhaft an (126 MB) | aus, per Kommando einschaltbar |
-| Objekt-States | `iobout` konnte Objekte schreiben | simple-api kann **nur** Primitive; Command läuft über eine Zahl |
+| Admin-Adapter | dauerhaft an (~126 MB) | aus, per Kommando einschaltbar |
+| Objekt-States | `iobout` schrieb Objekte | simple-api schreibt Objekte als `{"val":…, "ack":false}` |
 
 ## Aufbau
 
@@ -25,7 +25,7 @@ Beispiel-URLs (aus den Flows):
 ```
 http://127.0.0.1:8087/set/javascript.0.Schalter.Kueche?value={{{payload}}}
 http://127.0.0.1:8087/set/alexa2.0.Smart-Home-Devices.<id>.powerState?value={{{payload}}}
-http://127.0.0.1:8087/set/0_userdata.0.command.id?value={{{payload}}}
+http://127.0.0.1:8087/set/javascript.0.Schalter.Command?value={{{payload}}}
 ```
 
 `payload` ist bei den Schaltern ein Boolean (aus dem Subflow `ConvertToBool`).
@@ -33,10 +33,22 @@ http://127.0.0.1:8087/set/0_userdata.0.command.id?value={{{payload}}}
 ## Command-Kanal
 
 Das VSH-Gerät `Command` (DIMMER_SWITCH) liefert `{powerState, brightness}`.
-simple-api kann keine Objekt-States schreiben, deshalb wandelt Node-RED das in
-eine Zahl um und schreibt `0_userdata.0.command.id`.
+Node-RED verpackt das als vollständiges State-Objekt und schreibt es in den
+bestehenden State:
 
-`script.js.Alexa.Command` wertet diese Zahl aus:
+```js
+msg.payload = encodeURIComponent(JSON.stringify({ val: msg.payload, ack: false }));
+```
+
+Ziel: `javascript.0.Schalter.Command` (Typ `object`).
+
+`script.js.Alexa.Command` wertet den State ausschließlich über
+
+```js
+on({ id: "javascript.0.Schalter.Command" }, obj => { … })
+```
+
+aus. Es gibt **keinen** zusätzlichen State wie `0_userdata.0.command.id`.
 
 | ID | Funktion |
 |---|---|
@@ -44,13 +56,20 @@ eine Zahl um und schreibt `0_userdata.0.command.id`.
 | 2 | Wischen |
 | 3 | TV an |
 | 4 | Video an |
-| **5** | **ioBroker-Admin einschalten** |
-| **6** | **ioBroker-Admin ausschalten** |
-| **7** | **Sonarr + Radarr + NZBGet einschalten** |
-| **8** | **Sonarr + Radarr + NZBGet ausschalten** |
+| 5 | ioBroker-Admin einschalten |
+| 6 | ioBroker-Admin ausschalten |
+| 7 | Sonarr + Radarr + NZBGet einschalten |
+| 8 | Sonarr + Radarr + NZBGet ausschalten |
 
-Aufruf über Alexa: dem Gerät `Command` die Helligkeit 5 % bzw. 6 % zuweisen
-(oder eine Alexa-Routine „iobroker admin an" → „Command auf 5 %").
+Aufruf über Alexa: dem Gerät `Command` die entsprechende Helligkeit in Prozent
+zuweisen, z. B. 5 % = Admin an. Alternativ eine Alexa-Routine anlegen.
+
+Direkt (Skript/curl):
+
+```bash
+curl -s "http://127.0.0.1:8087/set/javascript.0.Schalter.Command?value=$( \
+  python3 -c 'import urllib.parse,json;print(urllib.parse.quote(json.dumps({"val":{"powerState":"ON","brightness":5},"ack":False})))')"
+```
 
 ## Container-Steuerung
 
@@ -62,24 +81,35 @@ Helferdienst auf dem Pi:
 | Programm | `/usr/local/bin/containerctl` (Python, stdlib) |
 | Unit | `/etc/systemd/system/containerctl.service` (User `pi`, docker-Gruppe) |
 | Bindung | `127.0.0.1:8894` |
-| Allowlist | `sonarr`, `radarr`, `nzbget` – keine freien Containernamen |
+| Allowlist | `sonarr`, `radarr`, `nzbget` |
 | Endpunkte | `GET /status`, `/start-all`, `/stop-all` (einzeln: `/start/<name>`, `/stop/<name>`) |
 
-Ablauf: Alexa → VSH `Command` → Node-RED → `0_userdata.0.command.id` →
+Ablauf: Alexa → VSH `Command` → Node-RED → `javascript.0.Schalter.Command` →
 ioBroker-JavaScript → `curl http://127.0.0.1:8894/stop-all` → `docker stop`.
 
-Getestet: `command.id=8` → alle drei `exited`; `command.id=7` → alle `running`.
-Der Helfer lehnt andere Container ab (`{"error":"container not allowed"}`).
+Getestet: ID 8 → alle drei `exited`; ID 7 → alle `running`. Fremde Container
+werden abgelehnt (`{"error":"container not allowed"}`).
+
+## Automatischer Neustart bei Speicherwachstum
+
+`iobroker-restart-check` (systemd-Timer täglich 04:00) prüft die RSS des
+js-controllers und startet den Container nur neu, wenn mehr als 500 MB belegt
+sind. Ergebnis beim Test: 641 MB → Neustart → 102 MB.
+
+```bash
+systemctl list-timers iobroker-restart.timer
+journalctl -t iobroker-restart -n 10
+```
 
 ## Tests
 
 | Prüfung | Ergebnis |
 |---|---|
 | `curl /set/...?value=true` (Boolean) | `{"value":true,"val":true}` |
-| Objekt-State per simple-api | abgelehnt (`forbidden properties`) → deshalb Zahl |
-| `command.id=99` | Log `Invalid command!` (keine Aktion) |
-| `command.id=5` | `admin.0 is running` |
-| `command.id=6` | `admin.0 is not running` |
+| Objekt-State per simple-api | nur als `{"val":{…},"ack":false}` akzeptiert |
+| ID 99 | Log `Invalid command!`, keine Aktion |
+| ID 5 | `admin.0 is running` |
+| ID 6 | `admin.0 is not running` |
 | Node-RED-Log auf 8081 | 0 Verbindungen |
 | Bindung simple-api | `127.0.0.1:8087`, aus dem LAN nicht erreichbar |
 | Flows | 18 `http request`, 0 `iob*`-Knoten |
@@ -88,20 +118,14 @@ Der Helfer lehnt andere Container ab (`{"error":"container not allowed"}`).
 
 | | vorher | nachher |
 |---|---|---|
-| verfügbar | 815 MB | ~1,24 GB |
-| Swap belegt | 2047 MB | ~1,3 GB |
+| verfügbar | 815 MB | ~1,6 GB (Admin aus, Container aus) |
+| Swap belegt | 2047 MB | ~1,0 GB |
 
 ## Sicherheitshinweis
 
-Die simple-api ist auf **`127.0.0.1`** gebunden und damit nur lokal erreichbar
-(Node-RED, `lights.py`, `dispatcharr-lights.py`). Aus dem LAN ist Port 8087
-geschlossen; `auth` bleibt aus, weil kein entfernter Zugriff mehr möglich ist.
-
-```bash
-# Prüfen
-ss -lntp | grep 8087                 # muss 127.0.0.1:8087 zeigen
-curl -s 127.0.0.1:8087/get/0_userdata.0.iobroker.admin
-```
+Die simple-api ist auf `127.0.0.1` gebunden und nur lokal erreichbar (Node-RED,
+`lights.py`, `dispatcharr-lights.py`). Aus dem LAN ist Port 8087 geschlossen;
+`auth` bleibt aus, weil kein entfernter Zugriff möglich ist.
 
 ## Rollback
 
@@ -112,9 +136,7 @@ sudo cp /media/ssd/nodered/flows.json.bak-<zeitstempel> /media/ssd/nodered/flows
 sudo docker start nodered
 ```
 
-Skript `script.js.Alexa.Command`: Listener auf `0_userdata.0.command.id` und die
-Funktionen `AdminAn`/`AdminAus` entfernen (oder Objekt aus dem ioBroker-Backup
-zurückholen). Admin wieder dauerhaft aktivieren:
+Admin wieder dauerhaft aktivieren:
 
 ```bash
 docker exec iobroker iobroker object set system.adapter.admin.0 common.enabled=true

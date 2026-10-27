@@ -1,0 +1,6 @@
+[Unit]
+Description=ioBroker-Neustart bei hohem Speicherverbrauch (Schwellwert)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/iobroker-restart-check
