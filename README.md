@@ -30,6 +30,7 @@ Kilo-Code-CLI aus. Zusätzlich kann derselbe Pi den PC per Wake-on-LAN wecken.
 | [docs/08-logging.md](docs/08-logging.md) | Zentrale Logs, Rotation, Abfragen per Job-ID |
 | [docs/09-chatgpt-auftraege.md](docs/09-chatgpt-auftraege.md) | Formulierungen für ChatGPT, Regeln, Fehlerfälle |
 | [docs/10-telegram.md](docs/10-telegram.md) | Telegram-Benachrichtigungen bei Auftragsende |
+| [docs/11-opencode.md](docs/11-opencode.md) | opencode auf dem Pi: TTY-Problem, Wrapper `oc-run` |
 
 ## Dateien auf dem Firmen-PC
 

@@ -1,0 +1,105 @@
+#!/usr/bin/env python3
+"""oc-run: opencode headless ausfuehren.
+
+Die opencode-CLI v2.1.4 blockiert ohne TTY. Dieses Skript startet sie unter
+einem Pseudo-Terminal (script) und gibt bei --format json nur den Antworttext aus.
+"""
+
+import json
+import os
+import shlex
+import signal
+import subprocess
+import sys
+
+OPENCODE = os.environ.get("OPENCODE_BIN", os.path.expanduser("~/.opencode/bin/opencode"))
+MODEL = os.environ.get("OPENCODE_MODEL", "deepseek/deepseek-flash")
+
+
+def run(prompt, model, timeout, json_out):
+    command = [OPENCODE, "run", "--format", "json", "--model", model, prompt]
+    inner = " ".join(shlex.quote(part) for part in command)
+    process = subprocess.Popen(
+        ["script", "-q", "-e", "-c", inner, "/dev/null"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        start_new_session=True,
+    )
+    try:
+        output, _ = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        os.killpg(process.pid, signal.SIGTERM)
+        try:
+            output, _ = process.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            os.killpg(process.pid, signal.SIGKILL)
+            output, _ = process.communicate()
+        print(f"Timeout nach {timeout}s", file=sys.stderr)
+        return 124
+
+    texts = []
+    events = []
+    for line in (output or "").splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        events.append(event)
+        part = event.get("part") or {}
+        if event.get("type") == "text" and isinstance(part.get("text"), str):
+            texts.append(part["text"])
+
+    if json_out:
+        print(json.dumps(events, ensure_ascii=False))
+    elif texts:
+        print("\n".join(texts).strip())
+    elif output.strip():
+        print(output.strip())
+    else:
+        print("(keine Ausgabe)", file=sys.stderr)
+    return process.returncode
+
+
+def main(argv):
+    args = argv[1:]
+    model = MODEL
+    timeout = 300
+    json_out = False
+    text = []
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg in ("--model", "-m"):
+            index += 1
+            if index >= len(args):
+                print("--model erwartet einen Wert", file=sys.stderr)
+                return 2
+            model = args[index]
+        elif arg.startswith("--model="):
+            model = arg.split("=", 1)[1]
+        elif arg in ("--timeout", "-t"):
+            index += 1
+            timeout = int(args[index]) if index < len(args) and args[index].isdigit() else timeout
+        elif arg == "--json":
+            json_out = True
+        elif arg in ("--help", "-h"):
+            print(__doc__)
+            print("Aufruf: oc-run [--model provider/model] [--timeout SEK] [--json] <prompt>")
+            return 0
+        else:
+            text.append(arg)
+        index += 1
+
+    prompt = " ".join(text).strip() if text else sys.stdin.read().strip()
+    if not prompt:
+        print("Kein Prompt uebergeben", file=sys.stderr)
+        return 2
+    return run(prompt, model, timeout, json_out)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
