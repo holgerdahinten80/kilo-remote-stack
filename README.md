@@ -32,6 +32,7 @@ Kilo-Code-CLI aus. Zusätzlich kann derselbe Pi den PC per Wake-on-LAN wecken.
 | [docs/10-telegram.md](docs/10-telegram.md) | Telegram-Benachrichtigungen bei Auftragsende |
 | [docs/11-opencode.md](docs/11-opencode.md) | opencode auf dem Pi: TTY-Problem, Wrapper `oc-run` |
 | [docs/12-iobroker-node-red.md](docs/12-iobroker-node-red.md) | Node-RED über simple-api, Admin nur bei Bedarf |
+| [docs/13-schalter-app.md](docs/13-schalter-app.md) | Schalter-PWA mit Admin-, Dienste- und RDC-Schalter |
 
 ## Dateien auf dem Firmen-PC
 
