@@ -16,6 +16,8 @@ SYSTEM_ITEMS = [
     {'id': '__admin__', 'name': 'ioBroker Admin', 'vendor': 'System'},
     {'id': '__services__', 'name': 'Dienste', 'vendor': 'System'},
     {'id': '__rdc__', 'name': 'RDC-Agent', 'vendor': 'System'},
+    {'id': '__jellyfin__', 'name': 'Jellyfin', 'vendor': 'System'},
+    {'id': '__dispatcharr__', 'name': 'Dispatcharr', 'vendor': 'System'},
 ]
 TOKEN_FILE = '/usr/local/share/dispatcharr/zap.token'
 
@@ -207,10 +209,13 @@ def system_values():
     except Exception:
         out['__admin__'] = None
     try:
-        st = control('/status')
-        out['__services__'] = bool(st) and all(v == 'running' for v in st.values())
+        status = control('/status')
     except Exception:
-        out['__services__'] = None
+        status = {}
+    group = ('sonarr', 'radarr', 'nzbget')
+    out['__services__'] = bool(status) and all(status.get(n) == 'running' for n in group)
+    out['__jellyfin__'] = status.get('jellyfin') == 'running' if status else None
+    out['__dispatcharr__'] = status.get('dispatcharr') == 'running' if status else None
     try:
         st = control('/service/status')
         out['__rdc__'] = st.get('rdc-agent') == 'active'
@@ -532,6 +537,9 @@ class Handler(BaseHTTPRequestHandler):
                     control('/start-all' if an else '/stop-all')
                 elif sid == '__rdc__':
                     control('/service/start/rdc-agent' if an else '/service/stop/rdc-agent')
+                elif sid in ('__jellyfin__', '__dispatcharr__'):
+                    name = 'jellyfin' if sid == '__jellyfin__' else 'dispatcharr'
+                    control('/start/' + name if an else '/stop/' + name)
                 else:
                     set_value(sid, val)
                 return self._send(200, {'ok': True, 'id': sid, 'value': val})

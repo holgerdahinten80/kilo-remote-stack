@@ -19,6 +19,8 @@ Die drei Einträge stehen zusätzlich zu den Lampen in der Liste:
 | ioBroker Admin | `0_userdata.0.iobroker.admin` | simple-api `set` → JavaScript schaltet `admin.0` |
 | Dienste | `containerctl` `/status` | `start-all` / `stop-all` (Sonarr, Radarr, NZBGet) |
 | RDC-Agent | `containerctl` `/service/status` | `service/start|stop/rdc-agent` |
+| Jellyfin | `containerctl` `/status` | `/start/jellyfin`, `/stop/jellyfin` |
+| Dispatcharr | `containerctl` `/status` | `/start/dispatcharr`, `/stop/dispatcharr` |
 
 Status wird beim Laden aus den echten Diensten gelesen, nicht aus einem Cache.
 
@@ -41,6 +43,8 @@ Status wird beim Laden aus den echten Diensten gelesen, nicht aus einem Cache.
 | `__admin__` true/false | `admin.0 is running` / `is not running` |
 | `__services__` true/false | alle drei `running` / `exited` |
 | `__rdc__` true/false | `active` / `inactive` |
+| `__jellyfin__` true/false | `running` / `exited` |
+| `__dispatcharr__` true/false | `running` / `exited` |
 
 ## Deploy/Rollback
 

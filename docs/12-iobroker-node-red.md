@@ -59,6 +59,8 @@ aus. Es gibt **keinen** zusätzlichen State wie `0_userdata.0.command.id`.
 | 5 | Admin – an/aus über `powerState` |
 | 6 | Dienste (Sonarr+Radarr+NZBGet) – an/aus über `powerState` |
 | 7 | RDC-Agent – an/aus über `powerState` |
+| 8 | Jellyfin – an/aus über `powerState` |
+| 9 | Dispatcharr – an/aus über `powerState` |
 
 Ein Kommando pro Ziel: `powerState=ON` schaltet ein, `OFF` schaltet aus
 (`active = obj.state.val.powerState == "ON"`).
@@ -83,8 +85,8 @@ Helferdienst auf dem Pi:
 | Programm | `/usr/local/bin/containerctl` (Python, stdlib) |
 | Unit | `/etc/systemd/system/containerctl.service` (User `pi`, docker-Gruppe) |
 | Bindung | `127.0.0.1:8894` |
-| Allowlist | Container: `sonarr`, `radarr`, `nzbget`; Dienst: `rdc-agent` |
-| Endpunkte | `GET /status`, `/start-all`, `/stop-all` (einzeln: `/start/<name>`, `/stop/<name>`) |
+| Allowlist | Container: `sonarr`, `radarr`, `nzbget`, `jellyfin`, `dispatcharr`; Dienst: `rdc-agent` |
+| Endpunkte | `GET /status`, `/start-all`, `/stop-all` (Gruppe: sonarr/radarr/nzbget; einzeln: `/start/<name>`, `/stop/<name>`) |
 | Dienst-Endpunkte | `GET /service/status`, `/service/start/rdc-agent`, `/service/stop/rdc-agent` |
 | sudoers | `/etc/sudoers.d/containerctl`: nur `systemctl start/stop rdc-agent` |
 
@@ -115,6 +117,8 @@ journalctl -t iobroker-restart -n 10
 | ID 5 + ON / OFF | `admin.0 is running` / `is not running` |
 | ID 6 + ON / OFF | alle drei `running` / `exited` |
 | ID 7 + ON / OFF | `rdc-agent` `active` / `inactive` |
+| ID 8 + ON / OFF | `jellyfin` `running` / `exited` |
+| ID 9 + ON / OFF | `dispatcharr` `running` / `exited` |
 | Node-RED-Log auf 8081 | 0 Verbindungen |
 | Bindung simple-api | `127.0.0.1:8087`, aus dem LAN nicht erreichbar |
 | Flows | 18 `http request`, 0 `iob*`-Knoten |

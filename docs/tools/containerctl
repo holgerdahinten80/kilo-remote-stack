@@ -6,7 +6,8 @@ import subprocess
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 LISTEN = ("127.0.0.1", 8894)
-CONTAINERS = {"sonarr", "radarr", "nzbget"}
+GROUP = {"sonarr", "radarr", "nzbget"}
+ALLOWED = GROUP | {"jellyfin", "dispatcharr"}
 SERVICES = {"rdc-agent"}
 
 
@@ -17,7 +18,7 @@ class Handler(BaseHTTPRequestHandler):
         parts = [part for part in self.path.strip("/").split("/") if part]
 
         if parts == ["status"]:
-            self._json(200, {name: container_status(name) for name in sorted(CONTAINERS)})
+            self._json(200, {name: container_status(name) for name in sorted(ALLOWED)})
             return
 
         if parts == ["service", "status"]:
@@ -35,7 +36,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if parts in (["start-all"], ["stop-all"]):
             verb = "start" if parts[0] == "start-all" else "stop"
-            results = {name: container_action(verb, name) for name in sorted(CONTAINERS)}
+            results = {name: container_action(verb, name) for name in sorted(GROUP)}
             all_ok = all(ok for ok, _ in results.values())
             self._json(200 if all_ok else 500, {
                 "action": parts[0],
@@ -46,7 +47,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if len(parts) == 2 and parts[0] in ("start", "stop"):
             name = parts[1]
-            if name not in CONTAINERS:
+            if name not in ALLOWED:
                 self._json(403, {"error": "container not allowed"})
                 return
             ok, message = container_action(parts[0], name)
