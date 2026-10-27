@@ -10,7 +10,6 @@ Group=pi
 ExecStart=/usr/local/bin/containerctl
 Restart=always
 RestartSec=5
-NoNewPrivileges=yes
 PrivateTmp=yes
 
 [Install]

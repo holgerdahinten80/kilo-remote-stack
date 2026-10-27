@@ -1,0 +1,1 @@
+pi ALL=(root) NOPASSWD: /usr/bin/systemctl start rdc-agent, /usr/bin/systemctl stop rdc-agent

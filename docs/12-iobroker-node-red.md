@@ -58,6 +58,7 @@ aus. Es gibt **keinen** zusätzlichen State wie `0_userdata.0.command.id`.
 | 4 | Video an |
 | 5 | Admin – an/aus über `powerState` |
 | 6 | Dienste (Sonarr+Radarr+NZBGet) – an/aus über `powerState` |
+| 7 | RDC-Agent – an/aus über `powerState` |
 
 Ein Kommando pro Ziel: `powerState=ON` schaltet ein, `OFF` schaltet aus
 (`active = obj.state.val.powerState == "ON"`).
@@ -82,8 +83,10 @@ Helferdienst auf dem Pi:
 | Programm | `/usr/local/bin/containerctl` (Python, stdlib) |
 | Unit | `/etc/systemd/system/containerctl.service` (User `pi`, docker-Gruppe) |
 | Bindung | `127.0.0.1:8894` |
-| Allowlist | `sonarr`, `radarr`, `nzbget` |
+| Allowlist | Container: `sonarr`, `radarr`, `nzbget`; Dienst: `rdc-agent` |
 | Endpunkte | `GET /status`, `/start-all`, `/stop-all` (einzeln: `/start/<name>`, `/stop/<name>`) |
+| Dienst-Endpunkte | `GET /service/status`, `/service/start/rdc-agent`, `/service/stop/rdc-agent` |
+| sudoers | `/etc/sudoers.d/containerctl`: nur `systemctl start/stop rdc-agent` |
 
 Ablauf: Alexa → VSH `Command` → Node-RED → `javascript.0.Schalter.Command` →
 ioBroker-JavaScript → `curl http://127.0.0.1:8894/stop-all` → `docker stop`.
@@ -111,6 +114,7 @@ journalctl -t iobroker-restart -n 10
 | ID 99 | Log `Invalid command!`, keine Aktion |
 | ID 5 + ON / OFF | `admin.0 is running` / `is not running` |
 | ID 6 + ON / OFF | alle drei `running` / `exited` |
+| ID 7 + ON / OFF | `rdc-agent` `active` / `inactive` |
 | Node-RED-Log auf 8081 | 0 Verbindungen |
 | Bindung simple-api | `127.0.0.1:8087`, aus dem LAN nicht erreichbar |
 | Flows | 18 `http request`, 0 `iob*`-Knoten |

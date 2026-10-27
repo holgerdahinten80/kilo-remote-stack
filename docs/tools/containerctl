@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Steuert eine feste Auswahl an Docker-Containern ueber HTTP (nur Loopback)."""
+"""Steuert eine feste Auswahl an Containern und Diensten ueber HTTP (nur Loopback)."""
 
 import json
 import subprocess
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 LISTEN = ("127.0.0.1", 8894)
-ALLOWED = {"sonarr", "radarr", "nzbget"}
+CONTAINERS = {"sonarr", "radarr", "nzbget"}
+SERVICES = {"rdc-agent"}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -14,12 +15,27 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         parts = [part for part in self.path.strip("/").split("/") if part]
+
         if parts == ["status"]:
-            self._json(200, {name: status(name) for name in sorted(ALLOWED)})
+            self._json(200, {name: container_status(name) for name in sorted(CONTAINERS)})
             return
+
+        if parts == ["service", "status"]:
+            self._json(200, {name: service_status(name) for name in sorted(SERVICES)})
+            return
+
+        if len(parts) == 3 and parts[0] == "service" and parts[1] in ("start", "stop"):
+            unit = parts[2]
+            if unit not in SERVICES:
+                self._json(403, {"error": "service not allowed"})
+                return
+            ok, message = service_action(parts[1], unit)
+            self._json(200 if ok else 500, {"service": unit, "action": parts[1], "ok": ok, "message": message})
+            return
+
         if parts in (["start-all"], ["stop-all"]):
             verb = "start" if parts[0] == "start-all" else "stop"
-            results = {name: action(verb, name) for name in sorted(ALLOWED)}
+            results = {name: container_action(verb, name) for name in sorted(CONTAINERS)}
             all_ok = all(ok for ok, _ in results.values())
             self._json(200 if all_ok else 500, {
                 "action": parts[0],
@@ -27,14 +43,16 @@ class Handler(BaseHTTPRequestHandler):
                 "containers": {name: {"ok": ok, "message": message} for name, (ok, message) in results.items()},
             })
             return
+
         if len(parts) == 2 and parts[0] in ("start", "stop"):
             name = parts[1]
-            if name not in ALLOWED:
+            if name not in CONTAINERS:
                 self._json(403, {"error": "container not allowed"})
                 return
-            ok, message = action(parts[0], name)
+            ok, message = container_action(parts[0], name)
             self._json(200 if ok else 500, {"container": name, "action": parts[0], "ok": ok, "message": message})
             return
+
         self._json(404, {"error": "unknown endpoint"})
 
     def _json(self, code, payload):
@@ -49,7 +67,7 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
-def status(name):
+def container_status(name):
     result = subprocess.run(
         ["docker", "inspect", "-f", "{{.State.Status}}", name],
         capture_output=True, text=True, timeout=20,
@@ -57,16 +75,30 @@ def status(name):
     return result.stdout.strip() if result.returncode == 0 else "unknown"
 
 
-def action(verb, name):
+def container_action(verb, name):
     command = ["docker", verb, name]
     if verb == "stop":
         command = ["docker", "stop", "-t", "20", name]
     result = subprocess.run(command, capture_output=True, text=True, timeout=120)
     if result.returncode != 0:
         return False, (result.stderr or result.stdout).strip()[:300]
-    return True, status(name)
+    return True, container_status(name)
+
+
+def service_status(unit):
+    result = subprocess.run(["systemctl", "is-active", unit], capture_output=True, text=True, timeout=20)
+    return result.stdout.strip() or "unknown"
+
+
+def service_action(verb, unit):
+    result = subprocess.run(
+        ["sudo", "-n", "systemctl", verb, unit],
+        capture_output=True, text=True, timeout=60,
+    )
+    if result.returncode != 0:
+        return False, (result.stderr or result.stdout).strip()[:300]
+    return True, service_status(unit)
 
 
 if __name__ == "__main__":
-    server = ThreadingHTTPServer(LISTEN, Handler)
-    server.serve_forever()
+    ThreadingHTTPServer(LISTEN, Handler).serve_forever()
