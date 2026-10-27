@@ -17,7 +17,7 @@ MODEL = os.environ.get("OPENCODE_MODEL", "deepseek/deepseek-flash")
 
 
 def run(prompt, model, timeout, json_out):
-    command = [OPENCODE, "run", "--format", "json", "--model", model, prompt]
+    command = [OPENCODE, "run", "--standalone", "--format", "json", "--model", model, prompt]
     inner = " ".join(shlex.quote(part) for part in command)
     process = subprocess.Popen(
         ["script", "-q", "-e", "-c", inner, "/dev/null"],

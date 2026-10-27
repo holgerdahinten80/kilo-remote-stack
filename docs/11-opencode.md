@@ -32,8 +32,9 @@ braucht das TTY.
 
 ## Lösung: `oc-run`
 
-`/usr/local/bin/oc-run` startet opencode unter einem Pseudo-Terminal, liest die
-JSON-Events und gibt nur den Antworttext aus.
+`/usr/local/bin/oc-run` startet opencode unter einem Pseudo-Terminal **und mit
+`--standalone`**. Dadurch entsteht kein dauerhafter Hintergrunddienst; nach dem
+Lauf bleiben keine Prozesse zurück (spart ~200 MB im Leerlauf).
 
 ```bash
 oc-run "Erkläre kurz, was dieses Verzeichnis enthält."
@@ -62,13 +63,16 @@ pkill -f '/home/pi/.opencode/bin/opencode'
 
 ## Speicher
 
-opencode braucht rund 130 MB RSS. Es überwacht das Arbeitsverzeichnis; aus `/`
-oder `/home` gestartet indiziert es große Bäume und belastet den Pi spürbar.
-Deshalb immer in einem kleinen Projektverzeichnis starten
-(z. B. `/home/pi/oc-test` oder das jeweilige Repo).
+opencode braucht rund 130–210 MB RSS. Ein normaler `opencode run` startet
+zusätzlich einen Hintergrunddienst (`serve --service`), der auch nach dem Lauf
+weiterläuft. `oc-run` verwendet `--standalone` und hinterlässt nichts.
 
-Der Pi hat 3,8 GB RAM; nach der Dispatcharr-Reduktion sind ~900 MB verfügbar,
-der Swap war zeitweise voll. Vor langen Läufen lohnt ein Blick auf `free -m`.
+Es überwacht das Arbeitsverzeichnis; aus `/` oder `/home` gestartet indiziert es
+große Bäume und belastet den Pi spürbar. Deshalb immer in einem kleinen
+Projektverzeichnis starten (z. B. `/home/pi/oc-test` oder das jeweilige Repo).
+
+Messwerte nach der Umstellung: `available` ~955 MB, Swap 1,5 GB belegt
+(zram), keine opencode-Prozesse im Leerlauf.
 
 ## Nicht vorgesehen
 
