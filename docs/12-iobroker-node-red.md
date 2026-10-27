@@ -60,6 +60,7 @@ Aufruf über Alexa: dem Gerät `Command` die Helligkeit 5 % bzw. 6 % zuweisen
 | `command.id=5` | `admin.0 is running` |
 | `command.id=6` | `admin.0 is not running` |
 | Node-RED-Log auf 8081 | 0 Verbindungen |
+| Bindung simple-api | `127.0.0.1:8087`, aus dem LAN nicht erreichbar |
 | Flows | 18 `http request`, 0 `iob*`-Knoten |
 
 ## Speicher
@@ -71,9 +72,15 @@ Aufruf über Alexa: dem Gerät `Command` die Helligkeit 5 % bzw. 6 % zuweisen
 
 ## Sicherheitshinweis
 
-Die simple-api läuft mit `bind 0.0.0.0` und `auth=false` – jedes LAN-Gerät kann
-States lesen und schreiben. Da nur lokale Skripte (Node-RED, `lights.py`) sie
-nutzen, empfiehlt sich `127.0.0.1` oder eine Authentifizierung.
+Die simple-api ist auf **`127.0.0.1`** gebunden und damit nur lokal erreichbar
+(Node-RED, `lights.py`, `dispatcharr-lights.py`). Aus dem LAN ist Port 8087
+geschlossen; `auth` bleibt aus, weil kein entfernter Zugriff mehr möglich ist.
+
+```bash
+# Prüfen
+ss -lntp | grep 8087                 # muss 127.0.0.1:8087 zeigen
+curl -s 127.0.0.1:8087/get/0_userdata.0.iobroker.admin
+```
 
 ## Rollback
 
